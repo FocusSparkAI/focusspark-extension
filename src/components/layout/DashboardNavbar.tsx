@@ -18,7 +18,11 @@ import {
   DropdownMenuTrigger,
 } from '../ui/dropdown-menu';
 
-export function DashboardNavbar() {
+interface DashboardNavbarProps {
+  onLogout: () => void | Promise<void>;
+}
+
+export function DashboardNavbar({ onLogout }: DashboardNavbarProps) {
   const [isDark, setIsDark] = useState(() =>
     document.documentElement.classList.contains('dark'),
   );
@@ -32,7 +36,7 @@ export function DashboardNavbar() {
 
   return (
     <header className="sticky top-0 z-40 border-b border-border bg-card/85 backdrop-blur-xl">
-      <div className="flex items-center justify-between gap-4 px-4 py-3 sm:px-6">
+      <div className="flex h-20 items-center justify-between gap-4 px-4 sm:px-6">
         <div className="flex min-w-0 items-center gap-3">
           <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg border border-blue-500/20 bg-blue-500/10">
             <LayoutDashboard className="h-5 w-5 text-blue-500" />
@@ -97,7 +101,10 @@ export function DashboardNavbar() {
                 Settings
               </DropdownMenuItem>
               <DropdownMenuSeparator />
-              <DropdownMenuItem className="text-destructive focus:text-destructive">
+              <DropdownMenuItem
+                className="text-destructive focus:text-destructive"
+                onClick={onLogout}
+              >
                 <LogOut className="mr-2 h-4 w-4 text-current" />
                 Logout
               </DropdownMenuItem>

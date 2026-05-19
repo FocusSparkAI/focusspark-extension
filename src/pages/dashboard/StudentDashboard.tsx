@@ -29,6 +29,7 @@ import { useFocus } from '../../context/FocusContext';
 
 interface StudentDashboardProps {
   onNavigate: (page: string) => void;
+  onLogout: () => void | Promise<void>;
 }
 
 const overviewStats = [
@@ -93,7 +94,7 @@ const studyTools = [
   },
 ];
 
-export function StudentDashboard({ onNavigate }: StudentDashboardProps) {
+export function StudentDashboard({ onNavigate, onLogout }: StudentDashboardProps) {
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [focusMinutes, setFocusMinutes] = useState(() => {
     const saved = Number(localStorage.getItem('focusspark-extension-focus-minutes'));
@@ -122,12 +123,14 @@ export function StudentDashboard({ onNavigate }: StudentDashboardProps) {
         collapsed={sidebarCollapsed}
         onToggleCollapse={() => setSidebarCollapsed(!sidebarCollapsed)}
         onNavigate={onNavigate}
+        onLogout={onLogout}
+        activePage="dashboard"
       />
 
       <div className="flex min-w-0 flex-1 flex-col">
-        <DashboardNavbar />
+        <DashboardNavbar onLogout={onLogout} />
 
-        <main className="flex-1 overflow-auto p-4 sm:p-6 lg:p-8">
+        <main className="flex-1 overflow-auto p-4 pb-28 sm:p-6 sm:pb-28 lg:p-8">
           <div className="max-w-7xl mx-auto space-y-6">
             <motion.section
               initial={{ opacity: 0, y: 18 }}
@@ -201,7 +204,7 @@ export function StudentDashboard({ onNavigate }: StudentDashboardProps) {
                       Extension Tools
                     </CardTitle>
                   </CardHeader>
-                  <CardContent>
+                  <CardContent className="px-4 pb-4 sm:px-5 sm:pb-5">
                     <div className="grid gap-4 md:grid-cols-2">
                       {studyTools.map((tool) => {
                         const Icon = tool.icon;
@@ -209,18 +212,20 @@ export function StudentDashboard({ onNavigate }: StudentDashboardProps) {
                           <button
                             key={tool.title}
                             onClick={() => onNavigate(tool.page)}
-                            className="group flex min-h-44 rounded-xl border border-border bg-background p-5 text-left transition hover:border-blue-400 hover:shadow-md"
+                            className="group flex min-h-36 rounded-xl border border-border bg-background p-4 text-left transition hover:border-blue-400 hover:shadow-md sm:min-h-40 sm:p-5"
                           >
-                            <div className="flex w-full items-start gap-4">
-                              <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-blue-500/10 text-blue-500">
+                            <div className="flex w-full items-start gap-3 sm:gap-4">
+                              <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-blue-500/10 text-blue-500 sm:h-12 sm:w-12">
                                 <Icon className="h-5 w-5 stroke-[2.2]" />
                               </div>
-                              <div className="flex min-w-0 flex-1 flex-col self-stretch">
-                                <h3 className="font-medium">{tool.title}</h3>
-                                <p className="mt-2 text-sm leading-6 text-secondary">
+                              <div className="flex min-w-0 flex-1 flex-col self-stretch pt-0.5">
+                                <h3 className="text-base font-semibold leading-6 tracking-normal">
+                                  {tool.title}
+                                </h3>
+                                <p className="mt-2 max-w-[34rem] text-sm leading-6 text-secondary">
                                   {tool.description}
                                 </p>
-                                <span className="mt-auto inline-flex items-center gap-2 pt-4 text-sm text-blue-500">
+                                <span className="mt-auto inline-flex items-center gap-2 pt-5 text-sm font-medium text-blue-500">
                                   {tool.action}
                                   <ArrowRight className="h-4 w-4 shrink-0 transition group-hover:translate-x-1" />
                                 </span>

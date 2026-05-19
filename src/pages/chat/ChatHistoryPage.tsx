@@ -2,7 +2,6 @@ import { useState, useEffect } from 'react';
 import axios from 'axios';
 import { motion, AnimatePresence } from 'motion/react';
 import {
-  Brain,
   FileText,
   Cpu,
   Leaf,
@@ -15,7 +14,6 @@ import {
   ThumbsUp,
   ThumbsDown,
   X,
-  BarChart2,
   UserRound,
 } from 'lucide-react';
 import { Button } from '../../components/ui/button';
@@ -90,7 +88,7 @@ const stripTutorPromptWrapper = (text: string) => {
 };
 
 const ICON_MAP: Record<ChatIcon, { Icon: React.ElementType; colorClass: string }> = {
-  ai: { Icon: Brain, colorClass: 'bg-purple-500/15 text-purple-400' },
+  ai: { Icon: MessageCircle, colorClass: 'bg-blue-500/10 text-blue-500' },
   tool: { Icon: Leaf, colorClass: 'bg-teal-500/15 text-teal-400' },
   doc: { Icon: FileText, colorClass: 'bg-blue-500/15 text-blue-400' },
   code: { Icon: Cpu, colorClass: 'bg-amber-500/15 text-amber-400' },
@@ -789,15 +787,16 @@ export function ChatHistoryPage({ onNavigate }: ChatHistoryPageProps = {}) {
 
   return (
     <motion.div className="h-screen flex overflow-hidden relative bg-gradient-to-br from-slate-50 via-blue-50 to-indigo-50 dark:from-[#0B1020] dark:via-[#101827] dark:to-[#17122A]">
-      {/* ── Left Sidebar ── */}
+      {/* ── Right Sidebar ── */}
       <AnimatePresence initial={false}>
         {leftPanelOpen && (
           <motion.div
-            initial={{ x: -300, opacity: 0 }}
+            initial={{ x: 300, opacity: 0 }}
             animate={{ x: 0, opacity: 1 }}
-            exit={{ x: -300, opacity: 0 }}
+            exit={{ x: 300, opacity: 0 }}
             transition={{ duration: 0.3, ease: 'easeInOut' }}
-            className="w-[360px] border-r border-border/70 p-0 flex flex-col fixed lg:relative z-30 h-screen bg-white/90 dark:bg-[#10121A]/90 backdrop-blur-xl shadow-xl lg:shadow-none"
+            style={{ width: '360px', maxWidth: 'calc(100vw - 1rem)' }}
+            className="fixed inset-y-0 right-0 z-30 flex flex-col border-l border-border/70 bg-white/90 p-0 shadow-xl backdrop-blur-xl dark:bg-[#10121A]/90"
           >
             {/* Header */}
             <div className="flex items-center justify-between px-5 py-4 border-b border-border">
@@ -811,7 +810,7 @@ export function ChatHistoryPage({ onNavigate }: ChatHistoryPageProps = {}) {
             </div>
 
             {/* Chat list */}
-            <div className="flex-1 overflow-y-auto py-3">
+            <div className="flex-1 overflow-x-hidden overflow-y-auto py-3">
               {isLoading && (
                 <div className="mx-5 mt-6 rounded-2xl border border-border bg-card/70 p-5 text-center">
                   <p className="text-sm font-medium text-foreground">Loading conversations</p>
@@ -870,7 +869,10 @@ export function ChatHistoryPage({ onNavigate }: ChatHistoryPageProps = {}) {
       </AnimatePresence>
 
       {/* ── Main Content ── */}
-      <div className="flex-1 flex flex-col min-w-0 h-screen">
+      <div
+        style={leftPanelOpen ? { marginRight: '360px' } : undefined}
+        className="flex flex-col min-w-0 h-screen transition-[margin] duration-300 w-full"
+      >
 
         {/* Top Bar — same structure/classes as ChatbotWorkspace */}
         <div className="border-b border-border/70 p-3 sm:p-4 flex-shrink-0 bg-white/85 dark:bg-[#10121A]/85 backdrop-blur-xl shadow-sm">
@@ -883,14 +885,9 @@ export function ChatHistoryPage({ onNavigate }: ChatHistoryPageProps = {}) {
                   <Home className="w-5 h-5" />
                 </Button>
               )}
-              {!leftPanelOpen && (
-                <Button variant="ghost" size="icon" onClick={() => setLeftPanelOpen(true)} className="hover:bg-accent">
-                  <ChevronRight className="w-5 h-5" />
-                </Button>
-              )}
               <div className="hidden sm:flex items-center gap-3">
                 <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-blue-500/10 text-blue-500">
-                  <Brain className="w-5 h-5" />
+                  <MessageCircle className="w-5 h-5" />
                 </div>
                 <div>
                   <h2 className="text-lg lg:text-xl font-semibold whitespace-nowrap">Chat History</h2>
@@ -918,14 +915,9 @@ export function ChatHistoryPage({ onNavigate }: ChatHistoryPageProps = {}) {
 
             {/* Right action */}
             <div className="flex items-center gap-1 sm:gap-2 flex-shrink-0">
-              {activeChat && onNavigate && (
-                <Button variant="outline" onClick={() => onNavigate('chatbot')} className="rounded-full">
-                  Open AI Tutor
-                </Button>
-              )}
               {!leftPanelOpen && (
-                <Button variant="ghost" size="icon" onClick={() => setLeftPanelOpen(true)} className="lg:hidden hover:bg-accent">
-                  <BarChart2 className="w-5 h-5" />
+                <Button variant="ghost" size="icon" onClick={() => setLeftPanelOpen(true)} className="hover:bg-accent">
+                  <ChevronRight className="w-5 h-5 rotate-180" />
                 </Button>
               )}
             </div>
@@ -933,8 +925,10 @@ export function ChatHistoryPage({ onNavigate }: ChatHistoryPageProps = {}) {
         </div>
 
         {/* Messages — same scroll area style as ChatbotWorkspace */}
-        <div className="flex-1 overflow-y-auto overflow-x-hidden p-6 chatbot-messages-scroll">
-          <div className="max-w-5xl mx-auto space-y-6 pb-6">
+        <div
+          className="flex-1 overflow-y-auto overflow-x-hidden p-6 pr-10 chatbot-messages-scroll"
+        >
+          <div className="w-full space-y-6 pb-6">
             <AnimatePresence mode="wait">
               {!activeChat ? (
                 <motion.div
@@ -1059,14 +1053,6 @@ export function ChatHistoryPage({ onNavigate }: ChatHistoryPageProps = {}) {
           <div className="max-w-5xl mx-auto flex flex-wrap items-center justify-center gap-2 text-sm text-muted-foreground">
             <MessageCircle className="w-4 h-4 text-blue-500/50 flex-shrink-0" />
             <span>Read-only view. Open the AI Tutor workspace to continue chatting.</span>
-            {onNavigate && (
-              <button
-                onClick={() => onNavigate('chatbot')}
-                className="text-blue-400 hover:text-blue-500 underline underline-offset-2 transition-colors whitespace-nowrap ml-1"
-              >
-                Go to workspace
-              </button>
-            )}
           </div>
         </div>
       </div>

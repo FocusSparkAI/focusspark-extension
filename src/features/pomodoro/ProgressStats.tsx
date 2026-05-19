@@ -1,5 +1,5 @@
 import { motion } from 'motion/react';
-import { Bot, ClipboardCheck, CreditCard, Flame, TrendingUp } from 'lucide-react';
+import { Bot, ClipboardCheck, CreditCard, TrendingUp } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '../../components/ui/card';
 import { Button } from '../../components/ui/button';
 
@@ -9,7 +9,6 @@ interface ProgressStatsProps {
 
 export function ProgressStats({ onNavigate }: ProgressStatsProps) {
   const weeklyProgress = 65;
-  const currentStreak = 7;
 
   const weeklyData = [
     { day: 'Mon', hours: 3 },
@@ -96,20 +95,7 @@ export function ProgressStats({ onNavigate }: ProgressStatsProps) {
           </div>
         </div>
 
-        <div className="rounded-xl border border-orange-500/30 bg-orange-500/10 p-4">
-          <div className="flex items-center gap-3">
-            <Flame className="h-7 w-7 text-orange-500" />
-            <div>
-              <p className="text-sm text-secondary">Current streak</p>
-              <p className="text-2xl font-semibold">{currentStreak} days</p>
-            </div>
-          </div>
-          <p className="mt-2 text-sm text-secondary">
-            Keep the streak going with one focused session today.
-          </p>
-        </div>
-
-        <div className="mt-auto grid gap-2 sm:grid-cols-3">
+        <div className="mt-8 grid gap-2 sm:grid-cols-3">
           {actions.map((action) => {
             const Icon = action.icon;
             return (
