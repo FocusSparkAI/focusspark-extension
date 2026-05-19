@@ -41,6 +41,10 @@ export async function getOrCreateTutorThreadId(): Promise<number> {
   return getTutorThreadId();
 }
 
+export function resetTutorThread(): void {
+  tutorThreadIdPromise = null;
+}
+
 async function sendChatPrompt(prompt: string): Promise<AIResponse> {
   try {
     const threadId = await getTutorThreadId();

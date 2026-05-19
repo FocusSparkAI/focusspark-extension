@@ -1,0 +1,132 @@
+import { motion } from 'motion/react';
+import { Bot, ClipboardCheck, CreditCard, Flame, TrendingUp } from 'lucide-react';
+import { Card, CardContent, CardHeader, CardTitle } from '../../components/ui/card';
+import { Button } from '../../components/ui/button';
+
+interface ProgressStatsProps {
+  onNavigate?: (page: string) => void;
+}
+
+export function ProgressStats({ onNavigate }: ProgressStatsProps) {
+  const weeklyProgress = 65;
+  const currentStreak = 7;
+
+  const weeklyData = [
+    { day: 'Mon', hours: 3 },
+    { day: 'Tue', hours: 4 },
+    { day: 'Wed', hours: 2 },
+    { day: 'Thu', hours: 5 },
+    { day: 'Fri', hours: 3 },
+    { day: 'Sat', hours: 4 },
+    { day: 'Sun', hours: 2 },
+  ];
+
+  const actions = [
+    { label: 'Open AI Tutor', icon: Bot, page: 'chatbot' },
+    { label: 'Review Flashcards', icon: CreditCard, page: 'flashcards' },
+    { label: 'Take Quiz', icon: ClipboardCheck, page: 'quiz' },
+  ];
+
+  const maxHours = Math.max(...weeklyData.map((day) => day.hours));
+
+  return (
+    <Card className="h-full border-border bg-card shadow-sm">
+      <CardHeader className="pb-2">
+        <CardTitle className="flex items-center gap-2 text-lg">
+          <TrendingUp className="h-5 w-5 text-purple-500" />
+          Study Progress
+        </CardTitle>
+      </CardHeader>
+      <CardContent className="flex h-full flex-col gap-5">
+        <div className="grid gap-5 sm:grid-cols-[132px_minmax(0,1fr)] sm:items-center">
+          <div className="relative mx-auto h-32 w-32">
+            <svg width="128" height="128" className="-rotate-90">
+              <circle
+                cx="64"
+                cy="64"
+                r="54"
+                stroke="currentColor"
+                strokeWidth="10"
+                fill="none"
+                className="text-muted"
+              />
+              <motion.circle
+                cx="64"
+                cy="64"
+                r="54"
+                stroke="url(#progressGradient)"
+                strokeWidth="10"
+                fill="none"
+                strokeLinecap="round"
+                strokeDasharray={2 * Math.PI * 54}
+                initial={{ strokeDashoffset: 2 * Math.PI * 54 }}
+                animate={{
+                  strokeDashoffset: 2 * Math.PI * 54 * (1 - weeklyProgress / 100),
+                }}
+                transition={{ duration: 1, ease: 'easeOut' }}
+              />
+              <defs>
+                <linearGradient id="progressGradient" x1="0%" y1="0%" x2="100%" y2="100%">
+                  <stop offset="0%" stopColor="#8b5cf6" />
+                  <stop offset="100%" stopColor="#3b82f6" />
+                </linearGradient>
+              </defs>
+            </svg>
+            <div className="absolute inset-0 flex flex-col items-center justify-center">
+              <span className="text-2xl font-semibold">{weeklyProgress}%</span>
+              <span className="text-xs text-secondary">13/20 hrs</span>
+            </div>
+          </div>
+
+          <div className="min-w-0">
+            <p className="text-sm font-medium">This week</p>
+            <div className="mt-3 flex h-28 items-end justify-between gap-2">
+              {weeklyData.map((item, index) => (
+                <div key={item.day} className="flex h-full min-w-0 flex-1 flex-col items-center justify-end gap-2">
+                  <motion.div
+                    className="w-full max-w-9 rounded-t-lg bg-gradient-to-t from-blue-500 to-purple-600"
+                    initial={{ height: 8 }}
+                    animate={{ height: Math.max(18, (item.hours / maxHours) * 88) }}
+                    transition={{ delay: index * 0.08, duration: 0.5 }}
+                  />
+                  <span className="text-xs text-secondary">{item.day}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+
+        <div className="rounded-xl border border-orange-500/30 bg-orange-500/10 p-4">
+          <div className="flex items-center gap-3">
+            <Flame className="h-7 w-7 text-orange-500" />
+            <div>
+              <p className="text-sm text-secondary">Current streak</p>
+              <p className="text-2xl font-semibold">{currentStreak} days</p>
+            </div>
+          </div>
+          <p className="mt-2 text-sm text-secondary">
+            Keep the streak going with one focused session today.
+          </p>
+        </div>
+
+        <div className="mt-auto grid gap-2 sm:grid-cols-3">
+          {actions.map((action) => {
+            const Icon = action.icon;
+            return (
+              <Button
+                key={action.label}
+                variant="outline"
+                size="sm"
+                className="justify-start"
+                onClick={() => onNavigate?.(action.page)}
+              >
+                <Icon className="mr-2 h-4 w-4" />
+                {action.label}
+              </Button>
+            );
+          })}
+        </div>
+      </CardContent>
+    </Card>
+  );
+}

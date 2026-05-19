@@ -8,7 +8,7 @@ import {
   Separator as PanelResizeHandle,
 } from "react-resizable-panels";
 
-import { cn } from "./utils";
+import { cn } from "../../utils/classNames";
 
 function ResizablePanelGroup({
   className,
