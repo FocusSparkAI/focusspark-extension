@@ -9,15 +9,18 @@ interface NavigationProps {
 }
 
 export function Navigation({ currentPage, onNavigate, theme, onThemeToggle }: NavigationProps) {
+  const placeholderUrl = 'https://www.google.com/';
   const navLinks = [
-    { name: 'Home', path: 'home' },
+    { name: 'Home', href: placeholderUrl },
+    { name: 'Our Science', href: placeholderUrl },
+    { name: 'About Us', href: placeholderUrl },
+    { name: 'Contact', href: placeholderUrl },
   ];
   void currentPage;
-  void navLinks;
 
   return (
     <nav className="fixed top-0 left-0 right-0 z-50 bg-background/80 backdrop-blur-lg border-b border-border">
-      <div className="max-w-7xl mx-auto px-6 lg:px-20">
+      <div className="w-full px-6 lg:px-10 xl:px-12">
         <div className="flex items-center justify-between h-16">
           {/* Logo */}
           <button
@@ -30,22 +33,17 @@ export function Navigation({ currentPage, onNavigate, theme, onThemeToggle }: Na
             <span className="font-bold text-xl text-foreground">FocusSpark</span>
           </button>
 
-          {/* Nav Links */}
-          {/* <div className="hidden md:flex items-center gap-8">
+          <div className="hidden md:flex items-center gap-8">
             {navLinks.map((link) => (
               <button
-                key={link.path}
-                onClick={() => onNavigate(link.path)}
-                className={`transition-colors hover:text-foreground ${
-                  currentPage === link.path
-                    ? 'text-foreground'
-                    : 'text-muted-foreground'
-                }`}
+                key={link.name}
+                onClick={() => window.open(link.href, '_blank', 'noopener,noreferrer')}
+                className="transition-colors text-muted-foreground hover:text-foreground"
               >
                 {link.name}
               </button>
             ))}
-          </div> */}
+          </div>
 
           {/* Right Actions */}
           <div className="flex items-center gap-3">

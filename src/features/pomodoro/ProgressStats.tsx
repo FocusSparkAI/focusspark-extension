@@ -1,5 +1,5 @@
 import { motion } from 'motion/react';
-import { Bot, ClipboardCheck, CreditCard, TrendingUp } from 'lucide-react';
+import { Bot, ClipboardCheck, Layers, TrendingUp } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '../../components/ui/card';
 import { Button } from '../../components/ui/button';
 
@@ -22,7 +22,7 @@ export function ProgressStats({ onNavigate }: ProgressStatsProps) {
 
   const actions = [
     { label: 'Open AI Tutor', icon: Bot, page: 'chatbot' },
-    { label: 'Review Flashcards', icon: CreditCard, page: 'flashcards' },
+    { label: 'Review Flashcards', icon: Layers, page: 'flashcards' },
     { label: 'Take Quiz', icon: ClipboardCheck, page: 'quiz' },
   ];
 

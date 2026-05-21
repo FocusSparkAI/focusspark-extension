@@ -92,11 +92,11 @@ export function DashboardNavbar({ onLogout }: DashboardNavbarProps) {
             <DropdownMenuContent align="end">
               <DropdownMenuLabel>My Account</DropdownMenuLabel>
               <DropdownMenuSeparator />
-              <DropdownMenuItem>
+              <DropdownMenuItem onClick={() => window.open('https://www.google.com/', '_blank', 'noopener,noreferrer')}>
                 <UserIcon className="mr-2 h-4 w-4" />
                 Profile
               </DropdownMenuItem>
-              <DropdownMenuItem>
+              <DropdownMenuItem onClick={() => window.open('https://www.google.com/', '_blank', 'noopener,noreferrer')}>
                 <Settings className="mr-2 h-4 w-4" />
                 Settings
               </DropdownMenuItem>

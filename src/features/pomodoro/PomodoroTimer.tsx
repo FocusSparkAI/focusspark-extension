@@ -8,12 +8,14 @@ interface PomodoroTimerProps {
   focusMinutes?: number;
   breakMinutes?: number;
   settingsSlot?: ReactNode;
+  onStart?: () => void;
 }
 
 export function PomodoroTimer({
   focusMinutes = 25,
   breakMinutes = 5,
   settingsSlot,
+  onStart,
 }: PomodoroTimerProps) {
   const focusSeconds = focusMinutes * 60;
   const breakSeconds = breakMinutes * 60;
@@ -69,6 +71,14 @@ export function PomodoroTimer({
   const seconds = time % 60;
   const totalSeconds = isBreak ? breakSeconds : focusSeconds;
   const progress = Math.min(100, Math.max(0, ((totalSeconds - time) / totalSeconds) * 100));
+  const handleStartClick = () => {
+    if (onStart) {
+      onStart();
+      return;
+    }
+
+    setIsActive(!isActive);
+  };
 
   return (
     <Card className="border-border bg-card shadow-sm">
@@ -107,7 +117,7 @@ export function PomodoroTimer({
           <Button
             className="bg-gradient-to-r from-blue-500 to-purple-600 text-white hover:opacity-90"
             size="lg"
-            onClick={() => setIsActive(!isActive)}
+            onClick={handleStartClick}
           >
             {isActive ? (
               <>

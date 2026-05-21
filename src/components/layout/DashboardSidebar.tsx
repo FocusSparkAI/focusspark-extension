@@ -3,7 +3,7 @@ import {
   Sparkles,
   LayoutDashboard,
   Bot,
-  CreditCard,
+  Layers,
   ClipboardCheck,
   History,
   LogOut,
@@ -26,7 +26,7 @@ interface DashboardSidebarProps {
 const menuItems = [
   { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
   { id: 'chatbot', label: 'AI Tutor', icon: Bot },
-  { id: 'flashcards', label: 'Flashcards', icon: CreditCard },
+  { id: 'flashcards', label: 'Flashcards', icon: Layers },
   { id: 'quiz', label: 'Quiz', icon: ClipboardCheck },
   { id: 'chat-history', label: 'Chat History', icon: History },
 ];
@@ -41,9 +41,9 @@ export function DashboardSidebar({
   const primaryMobileItems = [
     { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
     { id: 'chatbot', label: 'AI Tutor', icon: Bot },
-    { id: 'flashcards', label: 'Cards', icon: CreditCard },
+    { id: 'flashcards', label: 'Cards', icon: Layers },
     { id: 'quiz', label: 'Quiz', icon: ClipboardCheck },
-    { id: 'focus-env', label: 'Start', icon: Play },
+    { id: 'quick-start', label: 'Start', icon: Play },
   ];
 
   return (
@@ -177,7 +177,7 @@ export function DashboardSidebar({
           <Tooltip>
             <TooltipTrigger asChild>
               <Button
-                onClick={() => onNavigate('focus-env')}
+                onClick={() => onNavigate('quick-start')}
                 className={cn(
                   'w-full bg-gradient-to-r from-blue-500 to-purple-600 hover:opacity-90 glow-blue-purple',
                   collapsed && 'px-0',

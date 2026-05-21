@@ -6,17 +6,20 @@ interface FooterProps {
 }
 
 export function Footer({ onNavigate }: FooterProps) {
+  void onNavigate;
+
+  const placeholderUrl = 'https://www.google.com/';
   const quickLinks = [
-    { name: 'Home', path: 'home' },
-    { name: 'Our Science', path: 'https://www.youtube.com/' },
-    { name: 'About Us', path: 'https://www.youtube.com/' },
-    { name: 'Contact', path: 'https://www.youtube.com/' },
+    { name: 'Home', href: placeholderUrl },
+    { name: 'Our Science', href: placeholderUrl },
+    { name: 'About Us', href: placeholderUrl },
+    { name: 'Contact', href: placeholderUrl },
   ];
 
   const socialLinks = [
-    { icon: Linkedin, href: 'https://www.youtube.com/', label: 'LinkedIn' },
-    { icon: Twitter, href: 'https://www.youtube.com/', label: 'Twitter' },
-    { icon: Youtube, href: 'https://www.youtube.com/', label: 'YouTube' },
+    { icon: Linkedin, href: placeholderUrl, label: 'LinkedIn' },
+    { icon: Twitter, href: placeholderUrl, label: 'Twitter' },
+    { icon: Youtube, href: placeholderUrl, label: 'YouTube' },
   ];
 
   return (
@@ -43,8 +46,8 @@ export function Footer({ onNavigate }: FooterProps) {
             <div className="flex flex-col gap-2">
               {quickLinks.map((link) => (
                 <button
-                  key={link.path}
-                  onClick={() => onNavigate(link.path)}
+                  key={link.name}
+                  onClick={() => window.open(link.href, '_blank', 'noopener,noreferrer')}
                   className="text-muted-foreground hover:text-foreground transition-colors text-left"
                 >
                   {link.name}
@@ -63,6 +66,8 @@ export function Footer({ onNavigate }: FooterProps) {
                   <motion.a
                     key={social.label}
                     href={social.href}
+                    target="_blank"
+                    rel="noopener noreferrer"
                     aria-label={social.label}
                     className="w-10 h-10 rounded-full bg-card border border-border flex items-center justify-center hover:border-blue-500 transition-all"
                     whileHover={{ scale: 1.1 }}

@@ -57,7 +57,7 @@ export function EmotionalFeedbackPopup({
               >
                 <h3 className="text-lg mb-2">How are you feeling right now?</h3>
                 <p className="text-sm text-secondary">
-                  Let us know so we can help you stay on track
+                  Your answer will adjust the workspace mood and focus guidance.
                 </p>
               </motion.div>
 

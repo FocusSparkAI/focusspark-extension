@@ -1,5 +1,5 @@
 import { motion } from 'motion/react';
-import { Sparkles, FileText, CreditCard, Coffee, Brain, Zap } from 'lucide-react';
+import { Sparkles, FileText, Layers, Coffee, Brain, Zap } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '../../components/ui/card';
 import { Button } from '../../components/ui/button';
 
@@ -19,7 +19,7 @@ export function AISuggestionsFeed() {
     {
       id: 2,
       type: 'flashcards',
-      icon: CreditCard,
+      icon: Layers,
       title: 'Flashcards generated',
       description: '24 new flashcards created from your uploaded notes on Machine Learning.',
       action: 'Review Cards',

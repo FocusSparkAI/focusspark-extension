@@ -9,7 +9,7 @@ interface DynamicAttentionBarProps {
 }
 
 type StateType = {
-  type: 'happy' | 'sad' | 'neutral' | 'focused' | 'idle' | 'attention';
+  type: 'happy' | 'tired' | 'sad' | 'neutral' | 'focused' | 'idle' | 'attention';
   label: string;
   icon: any;
   color: string;
@@ -19,31 +19,11 @@ type StateType = {
 
 export function DynamicAttentionBar({ className = '' }: DynamicAttentionBarProps) {
   const { isDetectionEnabled, isFocused, focusScore, emotionalState } = useFocus();
-  const { phase, progress, isActive } = usePomodoro();
+  const { phase } = usePomodoro();
   const [displayState, setDisplayState] = useState<StateType | null>(null);
 
   // Check if Pomodoro timer is running
   const isPomodoroRunning = phase !== 'idle';
-  const isWarning = phase === 'focus' && progress > 80; // Last 20% is warning
-
-  // Pomodoro progress gradient based on phase
-  const pomodoroGradient = 
-    phase === 'break' 
-      ? 'from-green-500 to-teal-500'
-      : phase === 'paused'
-      ? 'from-purple-500 to-pink-500'
-      : isWarning
-      ? 'from-amber-500 to-orange-500'
-      : 'from-blue-500 to-teal-500';
-
-  const pomodoroGlow = 
-    phase === 'break'
-      ? 'rgba(16, 185, 129, 0.6)'
-      : phase === 'paused'
-      ? 'rgba(139, 92, 246, 0.4)'
-      : isWarning
-      ? 'rgba(245, 158, 11, 0.7)'
-      : 'rgba(59, 130, 246, 0.6)';
 
   // Update display state with smooth transitions whenever dependencies change
   useEffect(() => {
@@ -54,16 +34,25 @@ export function DynamicAttentionBar({ className = '' }: DynamicAttentionBarProps
       if (emotionalState === 'happy') {
         newState = {
           type: 'happy',
-          label: 'Happy',
+          label: 'Focused',
           icon: Smile,
           color: 'text-green-400',
           borderColor: 'border-green-500/50',
           glowColor: 'rgba(16, 185, 129, 0.5)',
         };
+      } else if (emotionalState === 'tired') {
+        newState = {
+          type: 'tired',
+          label: 'Tired',
+          icon: Meh,
+          color: 'text-amber-400',
+          borderColor: 'border-amber-500/50',
+          glowColor: 'rgba(245, 158, 11, 0.5)',
+        };
       } else if (emotionalState === 'sad') {
         newState = {
           type: 'sad',
-          label: 'Sad',
+          label: 'Distracted',
           icon: Frown,
           color: 'text-red-400',
           borderColor: 'border-red-500/50',
@@ -152,7 +141,7 @@ export function DynamicAttentionBar({ className = '' }: DynamicAttentionBarProps
             x: ['-100%', '100%'],
           }}
           transition={{
-            duration: state.type === 'happy' ? 4 : state.type === 'sad' ? 8 : 6,
+            duration: state.type === 'happy' ? 4 : state.type === 'sad' ? 8 : state.type === 'tired' ? 7 : 6,
             repeat: Infinity,
             ease: 'linear',
           }}
@@ -170,6 +159,12 @@ export function DynamicAttentionBar({ className = '' }: DynamicAttentionBarProps
                     'linear-gradient(90deg, rgba(16, 185, 129, 0.2) 0%, rgba(20, 184, 166, 0.2) 100%)',
                     'linear-gradient(90deg, rgba(20, 184, 166, 0.2) 0%, rgba(52, 211, 153, 0.2) 100%)',
                     'linear-gradient(90deg, rgba(16, 185, 129, 0.2) 0%, rgba(20, 184, 166, 0.2) 100%)',
+                  ]
+                : state.type === 'tired'
+                ? [
+                    'linear-gradient(90deg, rgba(245, 158, 11, 0.16) 0%, rgba(251, 191, 36, 0.16) 100%)',
+                    'linear-gradient(90deg, rgba(251, 191, 36, 0.16) 0%, rgba(217, 119, 6, 0.16) 100%)',
+                    'linear-gradient(90deg, rgba(245, 158, 11, 0.16) 0%, rgba(251, 191, 36, 0.16) 100%)',
                   ]
                 : state.type === 'sad'
                 ? [
@@ -210,6 +205,11 @@ export function DynamicAttentionBar({ className = '' }: DynamicAttentionBarProps
               ? {
                   scale: [1, 1.15, 1],
                   rotate: [0, 5, 0, -5, 0],
+                }
+              : state.type === 'tired'
+              ? {
+                  scale: [1, 1.03, 1],
+                  opacity: [0.75, 1, 0.75],
                 }
               : state.type === 'sad'
               ? {
@@ -341,6 +341,22 @@ export function DynamicAttentionBar({ className = '' }: DynamicAttentionBarProps
           </motion.div>
         )}
 
+        {state.type === 'tired' && (
+          <motion.div
+            className="flex-shrink-0"
+            animate={{
+              scale: [1, 1.08, 1],
+              opacity: [0.45, 0.85, 0.45],
+            }}
+            transition={{
+              duration: 2.4,
+              repeat: Infinity,
+            }}
+          >
+            <div className="w-2.5 h-2.5 sm:w-3 sm:h-3 rounded-full bg-amber-500" />
+          </motion.div>
+        )}
+
         {state.type === 'sad' && (
           <motion.div
             className="flex-shrink-0"
@@ -374,66 +390,6 @@ export function DynamicAttentionBar({ className = '' }: DynamicAttentionBarProps
         }}
       />
 
-      {/* Integrated Pomodoro Progress Line - Appears when timer is running */}
-      <AnimatePresence>
-        {isPomodoroRunning && (
-          <motion.div
-            initial={{ opacity: 0, height: 0 }}
-            animate={{ opacity: 1, height: 'auto' }}
-            exit={{ opacity: 0, height: 0 }}
-            transition={{ duration: 0.3, ease: 'easeInOut' }}
-            className="absolute bottom-0 left-0 right-0 px-4 sm:px-6 pb-2"
-          >
-            {/* Progress line container */}
-            <div className="w-full h-1 bg-muted/20 rounded-full overflow-hidden">
-              {/* Animated progress fill */}
-              <motion.div
-                className={`h-full bg-gradient-to-r ${pomodoroGradient} rounded-full relative`}
-                initial={{ width: 0 }}
-                animate={{ 
-                  width: `${progress}%`,
-                }}
-                transition={{ 
-                  duration: 0.5, 
-                  ease: 'easeOut',
-                }}
-              >
-                {/* Shimmer effect on the progress line */}
-                {isActive && (
-                  <motion.div
-                    className="absolute inset-0 bg-gradient-to-r from-transparent via-white/40 to-transparent"
-                    animate={{
-                      x: ['-100%', '100%'],
-                    }}
-                    transition={{
-                      duration: isWarning ? 1.5 : 2,
-                      repeat: Infinity,
-                      ease: 'linear',
-                    }}
-                  />
-                )}
-
-                {/* Glow effect */}
-                <motion.div
-                  className="absolute inset-0 rounded-full"
-                  animate={{
-                    boxShadow: [
-                      `0 0 4px ${pomodoroGlow}`,
-                      `0 0 8px ${pomodoroGlow}`,
-                      `0 0 4px ${pomodoroGlow}`,
-                    ],
-                  }}
-                  transition={{
-                    duration: isWarning ? 1 : 2,
-                    repeat: Infinity,
-                    ease: 'easeInOut',
-                  }}
-                />
-              </motion.div>
-            </div>
-          </motion.div>
-        )}
-      </AnimatePresence>
     </motion.div>
   );
 }

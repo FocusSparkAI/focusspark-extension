@@ -1,5 +1,4 @@
 import { useState, useEffect, useRef } from 'react';
-import axios from 'axios';
 import backendClient, { getAuthHeaders } from '../../utils/backendClient';
 import { motion, AnimatePresence } from 'motion/react';
 import { Button } from '../../components/ui/button';
@@ -24,9 +23,9 @@ import {
   XCircle,
   Home,
   RotateCcw,
-  Calendar,
   Eye,
   Search,
+  X,
   Plus,
   Target,
   Trophy,
@@ -34,7 +33,7 @@ import {
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { ImageWithFallback } from '../../components/figma/ImageWithFallback';
-import { BACKEND_ROUTES, buildBackendUrl } from '../../config/backend';
+import { BACKEND_ROUTES } from '../../config/backend';
 
 interface QuizQuestion {
   id: string;
@@ -57,6 +56,7 @@ interface Quiz {
   timeLimit?: number; // in seconds
   passingScore: number; // percentage
   totalAttempts: number;
+  questionCount: number;
   bestScore: number;
   averageScore: number;
   lastAttempted?: Date;
@@ -68,18 +68,136 @@ interface QuizScreenProps {
   onNavigate: (page: string) => void;
 }
 
+const DIFFICULTY_TIME_LIMITS: Record<Quiz['difficulty'], number> = {
+  Beginner: 5 * 60,
+  Intermediate: 10 * 60,
+  Advanced: 15 * 60,
+};
+
+const normalizeDifficulty = (difficulty: unknown): Quiz['difficulty'] => {
+  const value = String(difficulty || '').toLowerCase();
+  if (value === 'advanced') return 'Advanced';
+  if (value === 'intermediate') return 'Intermediate';
+  return 'Beginner';
+};
+
+const getQuizTimeLimit = (quiz: Pick<Quiz, 'difficulty' | 'timeLimit'>) =>
+  quiz.timeLimit ?? DIFFICULTY_TIME_LIMITS[quiz.difficulty];
+
+const normalizeCorrectAnswerIndex = (
+  value: unknown,
+  choices: string[],
+  preferOneBased = false
+) => {
+  if (typeof value === 'string') {
+    const normalizedValue = value.trim().toLowerCase();
+    const letterMatch = normalizedValue.match(/(?:^|\b)(?:option\s*)?([a-z])(?:\b|$)/);
+    if (letterMatch) {
+      const letterIndex = letterMatch[1].charCodeAt(0) - 'a'.charCodeAt(0);
+      if (letterIndex >= 0 && letterIndex < choices.length) return letterIndex;
+    }
+  }
+
+  const numericValue =
+    typeof value === 'number'
+      ? value
+      : typeof value === 'string' && value.trim() !== ''
+      ? Number(value)
+      : Number.NaN;
+
+  if (!Number.isFinite(numericValue)) return 0;
+
+  const index = Math.trunc(numericValue);
+  if (preferOneBased && index >= 1 && index <= choices.length) return index - 1;
+  if (index >= 0 && index < choices.length) return index;
+  if (index >= 1 && index - 1 < choices.length) return index - 1;
+
+  return 0;
+};
+
+const normalizeCorrectAnswer = (question: any, choices: string[]) => {
+  const candidateKeys = [
+    'correct_answer_index',
+    'correctAnswer',
+    'correct_answer',
+    'correct_option',
+    'correctOption',
+    'correct_choice',
+    'correctChoice',
+    'answer_index',
+    'answerIndex',
+    'answer',
+  ];
+
+  for (const key of candidateKeys) {
+    const candidate = question[key];
+    if (candidate === undefined || candidate === null || candidate === '') continue;
+
+    if (typeof candidate === 'string') {
+      const answerText = candidate.trim().toLowerCase();
+      const answerIndex = choices.findIndex((choice) => String(choice).trim().toLowerCase() === answerText);
+      if (answerIndex >= 0) return answerIndex;
+    }
+
+    const preferOneBased =
+      key === 'correct_answer' ||
+      key === 'correct_option' ||
+      key === 'correctOption' ||
+      key === 'correct_choice' ||
+      key === 'correctChoice';
+    const answerIndex = normalizeCorrectAnswerIndex(candidate, choices, preferOneBased);
+    if (answerIndex >= 0 && answerIndex < choices.length) return answerIndex;
+  }
+
+  return 0;
+};
+
+const mapQuizQuestion = (question: any): QuizQuestion => {
+  const choices = question.choices || question.options || [];
+  const mappedQuestion = {
+    id: String(question.id),
+    question: question.question,
+    image: question.image_url || question.image,
+    choices,
+    correctAnswer: normalizeCorrectAnswer(question, choices),
+    explanation: question.explanation || '',
+    relatedFlashcardId: question.related_flashcard_id ?? question.relatedFlashcardId,
+    topic: question.topic || '',
+  };
+
+  if (import.meta.env.DEV) {
+    // eslint-disable-next-line no-console
+    console.debug('[QuizScreen] mapped question answer', {
+      id: mappedQuestion.id,
+      rawCorrectAnswer: question.correct_answer,
+      rawCorrectAnswerIndex: question.correct_answer_index,
+      rawCorrectOption: question.correct_option ?? question.correctOption,
+      rawCorrectChoice: question.correct_choice ?? question.correctChoice,
+      rawAnswerIndex: question.answer_index ?? question.answerIndex,
+      rawAnswer: question.answer,
+      mappedCorrectAnswer: mappedQuestion.correctAnswer,
+      choices,
+    });
+  }
+
+  return mappedQuestion;
+};
+
 export function QuizScreen({ onNavigate }: QuizScreenProps) {
   const chromeApi = (globalThis as typeof globalThis & { chrome?: any }).chrome;
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedQuiz, setSelectedQuiz] = useState<Quiz | null>(null);
   const [currentQuestionIndex, setCurrentQuestionIndex] = useState(0);
   const [selectedAnswers, setSelectedAnswers] = useState<(number | null)[]>([]);
+  const [skippedAnswers, setSkippedAnswers] = useState<boolean[]>([]);
+  const [reviewedQuestions, setReviewedQuestions] = useState<boolean[]>([]);
   const [showFeedback, setShowFeedback] = useState(false);
   const [, setIsSubmitted] = useState(false);
   const [showSummary, setShowSummary] = useState(false);
   const [timerEnabled, setTimerEnabled] = useState(false);
   const [timeRemaining, setTimeRemaining] = useState(600);
   const [showConfetti, setShowConfetti] = useState(false);
+  const attemptStartedAtRef = useRef<Date | null>(null);
   const quizStrictModeRef = useRef(false);
   const focusTabIdRef = useRef<number | null>(null);
 
@@ -104,7 +222,10 @@ export function QuizScreen({ onNavigate }: QuizScreenProps) {
     quizStrictModeRef.current = true;
     localStorage.setItem('focusspark-strict-mode', 'true');
     syncStrictModeToBackground(true);
-    toast.warning('Quiz attempt started. Strict Mode is now ON.', { duration: 2500 });
+    toast.warning('Quiz attempt started. Strict Mode is now ON.', {
+      duration: 2500,
+      position: 'top-right',
+    });
   };
 
   const disableQuizStrictMode = () => {
@@ -112,7 +233,10 @@ export function QuizScreen({ onNavigate }: QuizScreenProps) {
     quizStrictModeRef.current = false;
     localStorage.setItem('focusspark-strict-mode', 'false');
     syncStrictModeToBackground(false);
-    toast.success('Quiz attempt ended. Strict Mode is now OFF.', { duration: 2000 });
+    toast.success('Quiz attempt ended. Strict Mode is now OFF.', {
+      duration: 2000,
+      position: 'top-right',
+    });
   };
 
   useEffect(() => {
@@ -133,7 +257,7 @@ export function QuizScreen({ onNavigate }: QuizScreenProps) {
 
   // Quizzes loaded from backend
   const [quizzes, setQuizzes] = useState<Quiz[]>([]);
-  const [, setIsLoadingQuizzes] = useState(false);
+  const [isLoadingQuizzes, setIsLoadingQuizzes] = useState(false);
   const [showCreateDialog, setShowCreateDialog] = useState(false);
   const [newTopic, setNewTopic] = useState('');
   const [newDifficulty, setNewDifficulty] = useState<Quiz['difficulty']>('Beginner');
@@ -146,15 +270,22 @@ export function QuizScreen({ onNavigate }: QuizScreenProps) {
       const res = await backendClient.get(BACKEND_ROUTES.quiz, { headers: authHeaders });
       const data = Array.isArray(res.data) ? res.data : [];
       const mapped = data.map((q: any) => {
+        const questionCount =
+          q.total_questions ??
+          q.question_count ??
+          q.questions_count ??
+          (Array.isArray(q.questions) ? q.questions.length : 0);
+
         return {
           id: String(q.id),
           title: q.title || 'Untitled Quiz',
           description: q.description || '',
           category: q.category || q.topic || 'General',
-          difficulty: (q.difficulty || 'Beginner') as Quiz['difficulty'],
+          difficulty: normalizeDifficulty(q.difficulty),
           timeLimit: q.time_limit_seconds ?? undefined,
           passingScore: q.passing_score ?? 0,
-          totalAttempts: q.total_attempts ?? q.total_questions ?? 0,
+          totalAttempts: q.total_attempts ?? 0,
+          questionCount,
           bestScore: q.best_score ?? 0,
           averageScore: q.average_score ?? 0,
           lastAttempted: q.created_at ? new Date(q.created_at) : undefined,
@@ -194,7 +325,9 @@ export function QuizScreen({ onNavigate }: QuizScreenProps) {
   useEffect(() => {
     if (selectedQuiz) {
       setSelectedAnswers(new Array(selectedQuiz.questions.length).fill(null));
-      setTimeRemaining(selectedQuiz.timeLimit || 600);
+      setSkippedAnswers(new Array(selectedQuiz.questions.length).fill(false));
+      setReviewedQuestions(new Array(selectedQuiz.questions.length).fill(false));
+      setTimeRemaining(getQuizTimeLimit(selectedQuiz));
     }
   }, [selectedQuiz]);
 
@@ -206,7 +339,7 @@ export function QuizScreen({ onNavigate }: QuizScreenProps) {
       }, 1000);
       return () => clearInterval(timer);
     } else if (timeRemaining === 0 && timerEnabled) {
-      handleSubmitAll();
+      void handleSubmitAll(true);
     }
   }, [timerEnabled, timeRemaining, showSummary, selectedQuiz]);
 
@@ -216,6 +349,18 @@ export function QuizScreen({ onNavigate }: QuizScreenProps) {
     return `${mins}:${secs.toString().padStart(2, '0')}`;
   };
 
+  const startAttemptTimer = () => {
+    attemptStartedAtRef.current = new Date();
+  };
+
+  const getAttemptStartedAt = () => {
+    if (!attemptStartedAtRef.current) {
+      startAttemptTimer();
+    }
+
+    return attemptStartedAtRef.current as Date;
+  };
+
   const currentQuestion = selectedQuiz?.questions[currentQuestionIndex];
   const currentAnswer = selectedAnswers[currentQuestionIndex];
 
@@ -223,60 +368,74 @@ export function QuizScreen({ onNavigate }: QuizScreenProps) {
     const newAnswers = [...selectedAnswers];
     newAnswers[currentQuestionIndex] = choiceIndex;
     setSelectedAnswers(newAnswers);
+
+    const newSkippedAnswers = [...skippedAnswers];
+    newSkippedAnswers[currentQuestionIndex] = false;
+    setSkippedAnswers(newSkippedAnswers);
   };
 
   const handleNext = () => {
     if (selectedQuiz && currentQuestionIndex < selectedQuiz.questions.length - 1) {
-      setCurrentQuestionIndex(currentQuestionIndex + 1);
-      setShowFeedback(false);
+      const nextQuestionIndex = currentQuestionIndex + 1;
+      setCurrentQuestionIndex(nextQuestionIndex);
+      setShowFeedback(reviewedQuestions[nextQuestionIndex] ?? false);
     }
   };
 
   const handlePrevious = () => {
     if (currentQuestionIndex > 0) {
-      setCurrentQuestionIndex(currentQuestionIndex - 1);
-      setShowFeedback(false);
+      const previousQuestionIndex = currentQuestionIndex - 1;
+      setCurrentQuestionIndex(previousQuestionIndex);
+      setShowFeedback(reviewedQuestions[previousQuestionIndex] ?? false);
     }
   };
 
-  const handleSubmitAnswer = async () => {
+  const handleSubmitAnswer = () => {
     if (currentAnswer === null) {
       toast.error('Please select an answer first.');
       return;
     }
 
     setShowFeedback(true);
-    const isCorrect = currentQuestion && currentAnswer === currentQuestion.correctAnswer;
+    const newReviewedQuestions = [...reviewedQuestions];
+    newReviewedQuestions[currentQuestionIndex] = true;
+    setReviewedQuestions(newReviewedQuestions);
+    // Inline feedback below shows the correct answer and explanation.
+    return;
 
-    if (selectedQuiz && currentQuestion) {
-      try {
-        const url = buildBackendUrl(
-          BACKEND_ROUTES.quizAttempts.replace('{quiz_id}', String(selectedQuiz.id))
-        );
-        await axios.post(url, {
-          answers: [
-            {
-              question_id: currentQuestion.id,
-              selected_answer_index: currentAnswer,
-            },
-          ],
-          started_at: new Date().toISOString(),
-          completed_at: new Date().toISOString(),
-        });
-      } catch (e) {
-        // Ignore backend errors for local practice flow.
-      }
-    }
-
-    if (isCorrect) {
+    if (false) {
       toast.success('✅ Correct!');
     } else {
       toast.error('❌ Incorrect. Review the explanation.');
     }
   };
 
-  const handleSubmitAll = async () => {
+  const handleDontKnow = () => {
+    const newAnswers = [...selectedAnswers];
+    newAnswers[currentQuestionIndex] = null;
+    setSelectedAnswers(newAnswers);
+
+    const newSkippedAnswers = [...skippedAnswers];
+    newSkippedAnswers[currentQuestionIndex] = true;
+    setSkippedAnswers(newSkippedAnswers);
+
+    const newReviewedQuestions = [...reviewedQuestions];
+    newReviewedQuestions[currentQuestionIndex] = true;
+    setReviewedQuestions(newReviewedQuestions);
+    setShowFeedback(true);
+  };
+
+  const handleSubmitAll = async (allowIncomplete = false) => {
     if (!selectedQuiz) return;
+
+    const unansweredCount = selectedAnswers.filter(
+      (answer, index) => answer === null && !skippedAnswers[index]
+    ).length;
+
+    if (!allowIncomplete && unansweredCount > 0) {
+      toast.error(`Please answer or choose "I don't know" for ${unansweredCount} question${unansweredCount === 1 ? '' : 's'}.`);
+      return;
+    }
 
     setIsSubmitted(true);
     setShowSummary(true);
@@ -289,20 +448,43 @@ export function QuizScreen({ onNavigate }: QuizScreenProps) {
     const percentage = Math.round((correctCount / selectedQuiz.questions.length) * 100);
 
     try {
-      const url = buildBackendUrl(
-        BACKEND_ROUTES.quizAttempts.replace('{quiz_id}', String(selectedQuiz.id))
-      );
+      const startedAt = getAttemptStartedAt();
+      const completedAt = new Date();
+      const authHeaders = await getAuthHeaders();
       const answersPayload = selectedQuiz.questions.map((q, i) => ({
         question_id: q.id,
         selected_answer_index: selectedAnswers[i] ?? null,
       }));
 
-      await axios.post(url, {
-        answers: answersPayload,
-        started_at: new Date().toISOString(),
-        completed_at: new Date().toISOString(),
-        time_taken_seconds: null,
-      });
+      await backendClient.post(
+        BACKEND_ROUTES.quizAttempts.replace('{quiz_id}', String(selectedQuiz.id)),
+        {
+          answers: answersPayload,
+          started_at: startedAt.toISOString(),
+          completed_at: completedAt.toISOString(),
+          time_taken_seconds: Math.max(0, Math.round((completedAt.getTime() - startedAt.getTime()) / 1000)),
+        },
+        { headers: authHeaders }
+      );
+
+      const updateQuizStats = (quiz: Quiz): Quiz => {
+        const nextAttempts = quiz.totalAttempts + 1;
+        return {
+          ...quiz,
+          totalAttempts: nextAttempts,
+          bestScore: Math.max(quiz.bestScore, percentage),
+          averageScore: Math.round(((quiz.averageScore * quiz.totalAttempts) + percentage) / nextAttempts),
+          lastAttempted: completedAt,
+        };
+      };
+
+      setSelectedQuiz((currentQuiz) =>
+        currentQuiz?.id === selectedQuiz.id ? updateQuizStats(currentQuiz) : currentQuiz
+      );
+      setQuizzes((currentQuizzes) =>
+        currentQuizzes.map((quiz) => (quiz.id === selectedQuiz.id ? updateQuizStats(quiz) : quiz))
+      );
+      await fetchQuizzes();
     } catch (e) {
       // Keep the result summary local if the backend is unavailable.
     }
@@ -325,7 +507,7 @@ export function QuizScreen({ onNavigate }: QuizScreenProps) {
 
   const weakTopics = selectedQuiz
     ? selectedQuiz.questions
-        .filter((q, index) => selectedAnswers[index] !== q.correctAnswer && selectedAnswers[index] !== null)
+        .filter((q, index) => selectedAnswers[index] !== q.correctAnswer)
         .map((q) => q.topic)
         .filter((value, index, self) => self.indexOf(value) === index)
     : [];
@@ -333,11 +515,15 @@ export function QuizScreen({ onNavigate }: QuizScreenProps) {
   const handleRetry = () => {
     if (!selectedQuiz) return;
     setSelectedAnswers(new Array(selectedQuiz.questions.length).fill(null));
+    setSkippedAnswers(new Array(selectedQuiz.questions.length).fill(false));
+    setReviewedQuestions(new Array(selectedQuiz.questions.length).fill(false));
     setCurrentQuestionIndex(0);
     setShowFeedback(false);
     setIsSubmitted(false);
     setShowSummary(false);
-    setTimeRemaining(selectedQuiz.timeLimit || 600);
+    setTimeRemaining(getQuizTimeLimit(selectedQuiz));
+    setTimerEnabled(true);
+    startAttemptTimer();
     toast('Quiz reset! Good luck! 🍀');
   };
 
@@ -366,26 +552,18 @@ export function QuizScreen({ onNavigate }: QuizScreenProps) {
             ? full.items
             : [];
 
-          const mappedQuestions = (questionsSource || []).map((qq: any) => ({
-            id: String(qq.id),
-            question: qq.question,
-            image: qq.image_url || qq.image,
-            choices: qq.choices || qq.options || [],
-            correctAnswer: qq.correct_answer_index ?? qq.correctAnswer ?? 0,
-            explanation: qq.explanation || '',
-            relatedFlashcardId: qq.related_flashcard_id ?? qq.relatedFlashcardId,
-            topic: qq.topic || '',
-          }));
+          const mappedQuestions = (questionsSource || []).map(mapQuizQuestion);
 
           const fullQuiz: Quiz = {
             id: String(full.id ?? quiz.id),
             title: full.title || quiz.title,
             description: full.description || quiz.description,
             category: full.category || full.topic || quiz.category,
-            difficulty: (full.difficulty || quiz.difficulty) as Quiz['difficulty'],
+            difficulty: normalizeDifficulty(full.difficulty || quiz.difficulty),
             timeLimit: full.time_limit_seconds ?? quiz.timeLimit,
             passingScore: full.passing_score ?? quiz.passingScore ?? 0,
             totalAttempts: full.total_attempts ?? quiz.totalAttempts ?? 0,
+            questionCount: full.total_questions ?? full.question_count ?? quiz.questionCount ?? mappedQuestions.length,
             bestScore: full.best_score ?? quiz.bestScore ?? 0,
             averageScore: full.average_score ?? quiz.averageScore ?? 0,
             lastAttempted: full.created_at ? new Date(full.created_at) : quiz.lastAttempted,
@@ -406,16 +584,7 @@ export function QuizScreen({ onNavigate }: QuizScreenProps) {
               const qRes = await backendClient.get(qsUrl, { headers: authHeaders2 });
               const qData = Array.isArray(qRes.data) ? qRes.data : qRes.data?.questions ?? [];
               if (qData && qData.length > 0) {
-                fullQuiz.questions = qData.map((qq: any) => ({
-                  id: String(qq.id),
-                  question: qq.question,
-                  image: qq.image_url || qq.image,
-                  choices: qq.choices || qq.options || [],
-                  correctAnswer: qq.correct_answer_index ?? qq.correctAnswer ?? 0,
-                  explanation: qq.explanation || '',
-                  relatedFlashcardId: qq.related_flashcard_id ?? qq.relatedFlashcardId,
-                  topic: qq.topic || '',
-                }));
+                fullQuiz.questions = qData.map(mapQuizQuestion);
               } else {
                 // try another common fallback
                 const itemsUrl = `${BACKEND_ROUTES.quiz}/${quiz.id}/items`;
@@ -426,16 +595,7 @@ export function QuizScreen({ onNavigate }: QuizScreenProps) {
                 const iRes = await backendClient.get(itemsUrl, { headers: authHeaders2 });
                 const iData = Array.isArray(iRes.data) ? iRes.data : iRes.data?.items ?? [];
                 if (iData && iData.length > 0) {
-                  fullQuiz.questions = iData.map((qq: any) => ({
-                    id: String(qq.id),
-                    question: qq.question,
-                    image: qq.image_url || qq.image,
-                    choices: qq.choices || qq.options || [],
-                    correctAnswer: qq.correct_answer_index ?? qq.correctAnswer ?? 0,
-                    explanation: qq.explanation || '',
-                    relatedFlashcardId: qq.related_flashcard_id ?? qq.relatedFlashcardId,
-                    topic: qq.topic || '',
-                  }));
+                  fullQuiz.questions = iData.map(mapQuizQuestion);
                 }
               }
             } catch (fallbackErr) {
@@ -451,6 +611,8 @@ export function QuizScreen({ onNavigate }: QuizScreenProps) {
             }
           }
 
+          fullQuiz.questionCount = fullQuiz.questions.length;
+
           setSelectedQuiz(fullQuiz);
         } else {
           setSelectedQuiz(quiz);
@@ -460,6 +622,8 @@ export function QuizScreen({ onNavigate }: QuizScreenProps) {
         setShowFeedback(false);
         setIsSubmitted(false);
         setShowSummary(false);
+        setTimerEnabled(true);
+        startAttemptTimer();
         enableQuizStrictMode();
       } catch (err: any) {
         console.error('Failed to load quiz details', err);
@@ -480,10 +644,13 @@ export function QuizScreen({ onNavigate }: QuizScreenProps) {
     setSelectedQuiz(null);
     setCurrentQuestionIndex(0);
     setSelectedAnswers([]);
+    setSkippedAnswers([]);
+    setReviewedQuestions([]);
     setShowFeedback(false);
     setIsSubmitted(false);
     setShowSummary(false);
     setTimerEnabled(false);
+    attemptStartedAtRef.current = null;
   };
 
   const handleCreateQuiz = () => setShowCreateDialog(true);
@@ -514,10 +681,14 @@ export function QuizScreen({ onNavigate }: QuizScreenProps) {
           title: created.title ?? `Quiz: ${newTopic}`,
           description: created.description ?? '',
           category: created.category ?? newTopic,
-          difficulty: (created.difficulty || newDifficulty) as Quiz['difficulty'],
+          difficulty: normalizeDifficulty(created.difficulty || newDifficulty),
           timeLimit: created.time_limit_seconds ?? undefined,
           passingScore: created.passing_score ?? 0,
           totalAttempts: created.total_attempts ?? 0,
+          questionCount:
+            created.total_questions ??
+            created.question_count ??
+            (Array.isArray(created.questions) ? created.questions.length : 0),
           bestScore: created.best_score ?? 0,
           averageScore: created.average_score ?? 0,
           lastAttempted: created.created_at ? new Date(created.created_at) : undefined,
@@ -564,16 +735,16 @@ export function QuizScreen({ onNavigate }: QuizScreenProps) {
     }
   }, [showConfetti]);
 
-  const getDifficultyColor = (difficulty: string) => {
+  const getDifficultyClass = (difficulty: string) => {
     switch (difficulty) {
       case 'Beginner':
-        return 'text-green-600 dark:text-green-400';
+        return 'quiz-difficulty-beginner';
       case 'Intermediate':
-        return 'text-yellow-600 dark:text-yellow-400';
+        return 'quiz-difficulty-intermediate';
       case 'Advanced':
-        return 'text-red-600 dark:text-red-400';
+        return 'quiz-difficulty-advanced';
       default:
-        return 'text-gray-600 dark:text-gray-400';
+        return 'quiz-difficulty-default';
     }
   };
 
@@ -614,13 +785,9 @@ export function QuizScreen({ onNavigate }: QuizScreenProps) {
 
               {selectedQuiz && !showSummary && (
                 <>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={() => setTimerEnabled(!timerEnabled)}
-                  >
+                  <Button variant="outline" size="sm" className="quiz-timer-display">
                     <Clock className="w-4 h-4 mr-2" />
-                    {timerEnabled ? formatTime(timeRemaining) : 'Enable Timer'}
+                    {formatTime(timeRemaining)}
                   </Button>
                   <Button variant="outline" onClick={handleBackToQuizzes}>
                     <ArrowLeft className="w-4 h-4 mr-2" />
@@ -633,15 +800,34 @@ export function QuizScreen({ onNavigate }: QuizScreenProps) {
 
           {/* Search Bar */}
           {!selectedQuiz && (
-            <div className="quiz-search-container">
-              <Search className="quiz-search-icon" />
-              <Input
-                type="text"
-                placeholder="Search quizzes by title, category, or tags..."
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                className="quiz-search-input"
-              />
+            <div className="quiz-search-row">
+              <div className="quiz-search-container">
+                <Search className="quiz-search-icon" />
+                <Input
+                  type="text"
+                  placeholder="Search quizzes by title, category, or tags..."
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  className="quiz-search-input"
+                />
+                {searchQuery && (
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon"
+                    className="quiz-search-clear"
+                    onClick={() => setSearchQuery('')}
+                    aria-label="Clear quiz search"
+                  >
+                    <X className="w-4 h-4" />
+                  </Button>
+                )}
+              </div>
+              <p className="quiz-search-count">
+                {isLoadingQuizzes
+                  ? 'Loading quizzes'
+                  : `${filteredQuizzes.length} ${filteredQuizzes.length === 1 ? 'quiz' : 'quizzes'} found`}
+              </p>
             </div>
           )}
 
@@ -722,7 +908,28 @@ export function QuizScreen({ onNavigate }: QuizScreenProps) {
             animate={{ opacity: 1 }}
             transition={{ duration: 0.3 }}
           >
-            {filteredQuizzes.map((quiz, index) => (
+            {isLoadingQuizzes ? (
+              <Card className="quiz-selection-card md:col-span-2 lg:col-span-3">
+                <CardContent className="py-10 text-center">
+                  <p className="quiz-stat-value">Loading quizzes...</p>
+                  <p className="quiz-stat-label mt-2">Fetching your latest practice sets.</p>
+                </CardContent>
+              </Card>
+            ) : filteredQuizzes.length === 0 ? (
+              <Card className="quiz-selection-card md:col-span-2 lg:col-span-3">
+                <CardContent className="py-10 text-center">
+                  <p className="quiz-stat-value">
+                    {searchQuery.trim() ? 'No quizzes match your search.' : 'No quizzes yet.'}
+                  </p>
+                  <p className="quiz-stat-label mt-2">
+                    {searchQuery.trim()
+                      ? 'Try a different title, category, or tag.'
+                      : 'Create a quiz to start practicing.'}
+                  </p>
+                </CardContent>
+              </Card>
+            ) : (
+              filteredQuizzes.map((quiz, index) => (
               <motion.div
                 key={quiz.id}
                 initial={{ opacity: 0, y: 20 }}
@@ -734,8 +941,7 @@ export function QuizScreen({ onNavigate }: QuizScreenProps) {
                     <div className="quiz-selection-header">
                       <CardTitle className="quiz-selection-title">{quiz.title}</CardTitle>
                       <Badge
-                        variant="secondary"
-                        className={getDifficultyColor(quiz.difficulty)}
+                        className={`quiz-difficulty-badge ${getDifficultyClass(quiz.difficulty)}`}
                       >
                         {quiz.difficulty}
                       </Badge>
@@ -757,7 +963,7 @@ export function QuizScreen({ onNavigate }: QuizScreenProps) {
                         <Target className="w-4 h-4 quiz-stat-icon" />
                         <div>
                           <p className="quiz-stat-label">Questions</p>
-                          <p className="quiz-stat-value">{quiz.questions.length}</p>
+                          <p className="quiz-stat-value">{quiz.questionCount}</p>
                         </div>
                       </div>
 
@@ -766,7 +972,7 @@ export function QuizScreen({ onNavigate }: QuizScreenProps) {
                         <div>
                           <p className="quiz-stat-label">Time Limit</p>
                           <p className="quiz-stat-value">
-                            {quiz.timeLimit ? `${Math.floor(quiz.timeLimit / 60)} min` : 'No limit'}
+                            {`${Math.floor(getQuizTimeLimit(quiz) / 60)} min`}
                           </p>
                         </div>
                       </div>
@@ -830,7 +1036,8 @@ export function QuizScreen({ onNavigate }: QuizScreenProps) {
                   </CardContent>
                 </Card>
               </motion.div>
-            ))}
+              ))
+            )}
           </motion.div>
         ) : (
           /* Quiz Taking View */
@@ -949,9 +1156,14 @@ export function QuizScreen({ onNavigate }: QuizScreenProps) {
 
                 <div className="flex gap-3">
                   {!showFeedback && (
-                    <Button onClick={handleSubmitAnswer} disabled={currentAnswer === null}>
-                      Submit Answer
-                    </Button>
+                    <>
+                      <Button variant="outline" onClick={handleDontKnow}>
+                        I don't know
+                      </Button>
+                      <Button onClick={handleSubmitAnswer} disabled={currentAnswer === null}>
+                        Submit Answer
+                      </Button>
+                    </>
                   )}
 
                   {showFeedback && selectedQuiz && currentQuestionIndex < selectedQuiz.questions.length - 1 && (
@@ -961,9 +1173,9 @@ export function QuizScreen({ onNavigate }: QuizScreenProps) {
                     </Button>
                   )}
 
-                  {selectedQuiz && currentQuestionIndex === selectedQuiz.questions.length - 1 && (
-                    <Button onClick={handleSubmitAll} className="quiz-submit-all-btn">
-                      Submit All
+                  {showFeedback && selectedQuiz && currentQuestionIndex === selectedQuiz.questions.length - 1 && (
+                    <Button onClick={() => void handleSubmitAll()} className="quiz-submit-all-btn">
+                      Finish Quiz
                     </Button>
                   )}
                 </div>
@@ -1083,18 +1295,15 @@ export function QuizScreen({ onNavigate }: QuizScreenProps) {
             <div className="flex gap-3">
               <Button variant="outline" onClick={handleRetry} className="flex-1 gap-2">
                 <RotateCcw className="w-4 h-4" />
-                Retry Quiz
+                Try Again
               </Button>
 
               <Button
-                onClick={() => {
-                  onNavigate('flashcards');
-                  setShowSummary(false);
-                }}
+                onClick={handleBackToQuizzes}
                 className="quiz-schedule-review-btn"
               >
-                <Calendar className="w-4 h-4" />
-                Schedule Review
+                <ArrowLeft className="w-4 h-4" />
+                Back to Quizzes
               </Button>
             </div>
           </div>

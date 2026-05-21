@@ -6,26 +6,20 @@ import {
   Upload,
   Camera,
   FileText,
-  Settings,
   Presentation,
-  Sparkles,
   ThumbsUp,
   ThumbsDown,
   ChevronLeft,
   ChevronRight,
   Download,
   Share2,
-  Save,
-  Play,
-  Brain,
+  GraduationCap,
+  Layers,
+  ListChecks,
   Eye,
-  Target,
   X,
   Check,
   Home,
-  HelpCircle,
-  Zap,
-  MessageCircle,
   ShieldAlert,
   BarChart2,
   UserRound,
@@ -63,6 +57,7 @@ interface Message {
   type: 'user' | 'ai' | 'flashcard' | 'quiz' | 'system';
   content: string;
   timestamp: Date;
+  attachmentName?: string;
   backendMessageId?: number;
   flashcards?: Flashcard[];
   quizData?: QuizQuestion[];
@@ -116,14 +111,15 @@ export function ChatbotWorkspace({ onNavigate }: ChatbotWorkspaceProps = {}) {
     {
       id: '1',
       type: 'ai',
-      content: "Hey there! I'm your AI learning companion. Upload a document, ask me anything, or let's generate some flashcards together!",
+      content: "Hi, I'm your AI tutor. Ask a question, upload study material, or turn this chat into flashcards and quizzes.",
       timestamp: new Date(),
     },
   ]);
   const [inputValue, setInputValue] = useState('');
-  const [leftPanelOpen, setLeftPanelOpen] = useState(false);
   const [uploadModalOpen, setUploadModalOpen] = useState(false);
+  const [fileAccept, setFileAccept] = useState('.pdf,.ppt,.pptx,.doc,.docx,.txt');
   const [selectedPersona] = useState('sensei');
+  const [pendingFile, setPendingFile] = useState<File | null>(null);
   const [uploadedDocs, setUploadedDocs] = useState<UploadedDocument[]>([]);
   const [isProcessing, setIsProcessing] = useState(false);
   const [uploadProgress, setUploadProgress] = useState(0);
@@ -134,7 +130,6 @@ export function ChatbotWorkspace({ onNavigate }: ChatbotWorkspaceProps = {}) {
   const [quizAnswers, setQuizAnswers] = useState<{ [key: string]: number }>({});
   const [quizComplete, setQuizComplete] = useState(false);
   const [showWelcome, setShowWelcome] = useState(true);
-  const [showHelp, setShowHelp] = useState(false);
   const [rightSidebarOpen, setRightSidebarOpen] = useState(true); // Start open by default
   const [showEmotionalFeedback, setShowEmotionalFeedback] = useState(false);
 
@@ -201,7 +196,7 @@ export function ChatbotWorkspace({ onNavigate }: ChatbotWorkspaceProps = {}) {
   const applyDetectionResult = (incomingEmotion: string, incomingFocused: boolean) => {
     const mappedEmotion = normalizeEmotion(incomingEmotion || 'neutral');
     setEmotionState(mappedEmotion);
-    setEmotionalState(mappedEmotion === 'happy' ? 'happy' : mappedEmotion === 'sad' ? 'sad' : 'neutral');
+    setEmotionalState(mappedEmotion === 'happy' ? 'happy' : mappedEmotion === 'sad' ? 'sad' : mappedEmotion === 'tired' ? 'tired' : 'neutral');
 
     setIsFocused(incomingFocused);
     setContextFocusScore(incomingFocused ? 85 : 35);
@@ -421,14 +416,14 @@ export function ChatbotWorkspace({ onNavigate }: ChatbotWorkspaceProps = {}) {
 
   // Emotional Feedback Popup - Show every 30 seconds when detection is disabled
   useEffect(() => {
+    if (isDetectionEnabled) {
+      setShowEmotionalFeedback(false);
+      return;
+    }
+
     if (!isDetectionEnabled) {
       const interval = setInterval(() => {
         setShowEmotionalFeedback(true);
-
-        // Auto-hide after 4 seconds
-        setTimeout(() => {
-          setShowEmotionalFeedback(false);
-        }, 4000);
       }, 30000); // Show every 30 seconds
 
       return () => clearInterval(interval);
@@ -556,21 +551,6 @@ export function ChatbotWorkspace({ onNavigate }: ChatbotWorkspaceProps = {}) {
     return () => window.clearInterval(interval);
   }, [isDetectionEnabled, transportMode]);
 
-  // Emotion State Rotation - Emotional Feedback Mode
-  useEffect(() => {
-    if (!isDetectionEnabled) {
-      const interval = setInterval(() => {
-        const emotions: ('happy' | 'tired' | 'neutral' | 'sad')[] = ['happy', 'tired', 'neutral', 'sad'];
-        const randomEmotion = emotions[Math.floor(Math.random() * emotions.length)];
-        setEmotionState(randomEmotion);
-
-        console.log('Emotional state updated:', randomEmotion);
-      }, 10000); // Update every 10 seconds
-
-      return () => clearInterval(interval);
-    }
-  }, [isDetectionEnabled]);
-
   // Reset focus state when detection is disabled
   useEffect(() => {
     if (!isDetectionEnabled) {
@@ -618,16 +598,96 @@ export function ChatbotWorkspace({ onNavigate }: ChatbotWorkspaceProps = {}) {
   }, []);
 
   const handleSendMessage = async () => {
-    if (!inputValue.trim()) return;
+    const trimmedInput = inputValue.trim();
+    if (!trimmedInput && !pendingFile) return;
+
+    if (pendingFile) {
+      const file = pendingFile;
+      const extension = file.name.split('.').pop()?.toLowerCase() ?? '';
+      const userInput = trimmedInput || `Uploaded file: ${file.name}`;
+
+      const userMessage: Message = {
+        id: Date.now().toString(),
+        type: 'user',
+        content: trimmedInput,
+        attachmentName: file.name,
+        timestamp: new Date(),
+      };
+
+      setMessages((prev) => [...prev, userMessage]);
+      setInputValue('');
+      setPendingFile(null);
+      setIsProcessing(true);
+      setUploadProgress(0);
+
+      const interval = setInterval(() => {
+        setUploadProgress((prev) => {
+          if (prev >= 100) {
+            clearInterval(interval);
+            return 100;
+          }
+          return prev + 10;
+        });
+      }, 200);
+
+      try {
+        const threadId = await getOrCreateTutorThreadId();
+        const authHeaders = await getAuthHeaders();
+        const form = new FormData();
+        form.append('thread_id', String(threadId));
+        form.append('message', userInput);
+        form.append('file', file);
+
+        await axios.post(buildBackendUrl(BACKEND_ROUTES.chatDocument), form, {
+          headers: {
+            ...authHeaders,
+            'Content-Type': 'multipart/form-data',
+          },
+        });
+
+        const newDoc: UploadedDocument = {
+          id: Date.now().toString(),
+          name: file.name,
+          type: extension === 'pdf' ? 'pdf' : extension === 'ppt' || extension === 'pptx' ? 'ppt' : extension === 'doc' || extension === 'docx' ? 'Word' : 'text',
+          uploadDate: new Date(),
+          processed: true,
+        };
+
+        setUploadedDocs((prev) => [...prev, newDoc]);
+
+        const summaryMessage: Message = {
+          id: Date.now().toString(),
+          type: 'system',
+          content: `Document "${file.name}" processed successfully!`,
+          timestamp: new Date(),
+        };
+
+        setMessages((prev) => [...prev, summaryMessage]);
+        toast.success('Document uploaded and processed!');
+      } catch (error) {
+        console.error('Document upload failed:', error);
+        toast.error('Upload failed. Please try another supported file.');
+        setPendingFile(file);
+      } finally {
+        clearInterval(interval);
+        setIsProcessing(false);
+        setUploadProgress(0);
+        if (fileInputRef.current) {
+          fileInputRef.current.value = '';
+        }
+      }
+
+      return;
+    }
 
     const userMessage: Message = {
       id: Date.now().toString(),
       type: 'user',
-      content: inputValue,
+      content: trimmedInput,
       timestamp: new Date(),
     };
 
-    const userInput = inputValue;
+    const userInput = trimmedInput;
     setMessages((prev) => [...prev, userMessage]);
     setInputValue('');
     setIsProcessing(true);
@@ -731,6 +791,11 @@ export function ChatbotWorkspace({ onNavigate }: ChatbotWorkspaceProps = {}) {
     ];
   };
 
+  const openFilePicker = (accept: string) => {
+    setFileAccept(accept);
+    window.setTimeout(() => fileInputRef.current?.click(), 0);
+  };
+
   const handleFileUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
     const files = event.target.files;
     if (!files || files.length === 0) return;
@@ -738,6 +803,10 @@ export function ChatbotWorkspace({ onNavigate }: ChatbotWorkspaceProps = {}) {
     const file = files[0];
     const extension = file.name.split('.').pop()?.toLowerCase() ?? '';
     const supportedExtensions = ['pdf', 'ppt', 'pptx', 'doc', 'docx', 'txt'];
+    const selectedExtensions = fileAccept
+      .split(',')
+      .map((value) => value.replace('.', '').trim().toLowerCase())
+      .filter(Boolean);
 
     if (!supportedExtensions.includes(extension)) {
       toast.error('Wrong file type. Please select a PDF, PPT, Word, or TXT file.');
@@ -747,68 +816,16 @@ export function ChatbotWorkspace({ onNavigate }: ChatbotWorkspaceProps = {}) {
       return;
     }
 
-    setUploadModalOpen(false);
-    setIsProcessing(true);
-    setUploadProgress(0);
-
-    // Simulate upload progress
-    const interval = setInterval(() => {
-      setUploadProgress((prev) => {
-        if (prev >= 100) {
-          clearInterval(interval);
-          return 100;
-        }
-        return prev + 10;
-      });
-    }, 200);
-
-    void (async () => {
-      try {
-        const threadId = await getOrCreateTutorThreadId();
-        const authHeaders = await getAuthHeaders();
-        const form = new FormData();
-        form.append('thread_id', String(threadId));
-        form.append('message', `Uploaded file: ${file.name}`);
-        form.append('file', file);
-
-        await axios.post(buildBackendUrl(BACKEND_ROUTES.chatDocument), form, {
-          headers: {
-            ...authHeaders,
-            'Content-Type': 'multipart/form-data',
-          },
-        });
-
-        const newDoc: UploadedDocument = {
-          id: Date.now().toString(),
-          name: file.name,
-          type: extension === 'pdf' ? 'pdf' : extension === 'ppt' || extension === 'pptx' ? 'ppt' : extension === 'doc' || extension === 'docx' ? 'Word' : 'text',
-          uploadDate: new Date(),
-          processed: true,
-        };
-
-        setUploadedDocs((prev) => [...prev, newDoc]);
-
-        const summaryMessage: Message = {
-          id: Date.now().toString(),
-          type: 'system',
-          content: `✅ Document "${file.name}" processed successfully! I've extracted key concepts. What would you like to do?`,
-          timestamp: new Date(),
-        };
-
-        setMessages((prev) => [...prev, summaryMessage]);
-        toast.success('Document uploaded and processed!');
-      } catch (error) {
-        console.error('Document upload failed:', error);
-        toast.error('Upload failed. Please try another supported file.');
-      } finally {
-        clearInterval(interval);
-        setIsProcessing(false);
-        setUploadProgress(0);
-        if (fileInputRef.current) {
-          fileInputRef.current.value = '';
-        }
+    if (!selectedExtensions.includes(extension)) {
+      toast.error('Please select the same file type you clicked.');
+      if (fileInputRef.current) {
+        fileInputRef.current.value = '';
       }
-    })();
+      return;
+    }
+
+    setPendingFile(file);
+    setUploadModalOpen(false);
   };
 
 
@@ -853,6 +870,8 @@ export function ChatbotWorkspace({ onNavigate }: ChatbotWorkspaceProps = {}) {
     const parsedId = Number.parseInt(latestRelevantMessage.id, 10);
     return Number.isFinite(parsedId) ? parsedId : null;
   };
+
+  const hasUserChatMessage = () => messages.some((message) => message.type === 'user');
 
   const mapFlashcardsResponse = (rawText: string): Flashcard[] => {
     try {
@@ -915,6 +934,11 @@ export function ChatbotWorkspace({ onNavigate }: ChatbotWorkspaceProps = {}) {
   };
 
   const handleCreateFlashcardsFromChat = async () => {
+    if (!hasUserChatMessage()) {
+      toast.info('Start a chat first, then create flashcards from it.', { duration: 3500 });
+      return;
+    }
+
     const messageId = getLatestChatMessageId();
     if (messageId === null) {
       toast.info('Send a chat message first, then create flashcards from it.', { duration: 3500 });
@@ -949,6 +973,11 @@ export function ChatbotWorkspace({ onNavigate }: ChatbotWorkspaceProps = {}) {
   };
 
   const handleCreateQuizFromChat = async () => {
+    if (!hasUserChatMessage()) {
+      toast.info('Start a chat first, then create a quiz from it.', { duration: 3500 });
+      return;
+    }
+
     const messageId = getLatestChatMessageId();
     if (messageId === null) {
       toast.info('Send a chat message first, then create a quiz from it.', { duration: 3500 });
@@ -988,6 +1017,8 @@ export function ChatbotWorkspace({ onNavigate }: ChatbotWorkspaceProps = {}) {
     });
   };
 
+  void handleSaveDeck;
+
   const handleExportDeck = () => {
     toast.success('⬇️ Exporting deck as CSV... Check your downloads folder!', {
       duration: 4000,
@@ -1020,11 +1051,19 @@ export function ChatbotWorkspace({ onNavigate }: ChatbotWorkspaceProps = {}) {
     });
 
     // Update emotional state in context for Dynamic Attention Bar
-    const emotionalStateMap: { [key: string]: 'happy' | 'neutral' | 'sad' } = {
+    const emotionalStateMap: { [key: string]: 'happy' | 'tired' | 'neutral' | 'sad' } = {
       focused: 'happy',
-      tired: 'neutral',
+      tired: 'tired',
       distracted: 'sad',
     };
+
+    const workspaceEmotionMap: Record<typeof emotion, 'happy' | 'tired' | 'sad'> = {
+      focused: 'happy',
+      tired: 'tired',
+      distracted: 'sad',
+    };
+
+    setEmotionState(workspaceEmotionMap[emotion]);
     setEmotionalState(emotionalStateMap[emotion]);
 
     // Log feedback for analytics (optional)
@@ -1051,13 +1090,19 @@ export function ChatbotWorkspace({ onNavigate }: ChatbotWorkspaceProps = {}) {
             return 'linear-gradient(135deg, #4a1a1a 0%, #4a2a1a 25%, #3a1a2a 50%, #4a1a2a 75%, #3a1a1a 100%)';
           }
           return 'linear-gradient(135deg, #FCA5A5 0%, #F87171 25%, #EF4444 50%, #DC2626 75%, #B91C1C 100%)';
+        case 'tired':
+          // Soft warm tones for low-energy study mode
+          if (isDark) {
+            return 'linear-gradient(135deg, #3d2f1f 0%, #4a3a24 35%, #3a3325 70%, #2f2d28 100%)';
+          }
+          return 'linear-gradient(135deg, #FFE8A3 0%, #FDCB6E 35%, #F6B35B 70%, #E8A24A 100%)';
         case 'neutral':
         default:
-          // Warm amber and golden tones for neutral
+          // Balanced neutral tones while waiting for feedback
           if (isDark) {
-            return 'linear-gradient(135deg, #4a3a1a 0%, #3a2a1a 25%, #4a3a2a 50%, #3a3a1a 75%, #2a2a1a 100%)';
+            return 'linear-gradient(135deg, #27313f 0%, #263a37 45%, #34372f 100%)';
           }
-          return 'linear-gradient(135deg, #FDE68A 0%, #FCD34D 25%, #FBBF24 50%, #F59E0B 75%, #D97706 100%)';
+          return 'linear-gradient(135deg, #EEF6FF 0%, #E4F7F1 45%, #FFF7D6 100%)';
       }
     }
 
@@ -1135,7 +1180,7 @@ export function ChatbotWorkspace({ onNavigate }: ChatbotWorkspaceProps = {}) {
                 }}
                 className="w-32 h-32 mx-auto rounded-3xl bg-gradient-to-br from-blue-500 to-purple-600 flex items-center justify-center glow-blue-purple"
               >
-                <Brain className="w-16 h-16 text-white" />
+                <GraduationCap className="w-16 h-16 text-white" />
               </motion.div>
               <motion.h2
                 initial={{ opacity: 0, y: 20 }}
@@ -1143,7 +1188,7 @@ export function ChatbotWorkspace({ onNavigate }: ChatbotWorkspaceProps = {}) {
                 transition={{ delay: 0.3 }}
                 className="text-4xl gradient-text"
               >
-                AI Learning Workspace
+                AI Tutor Workspace
               </motion.h2>
               <motion.p
                 initial={{ opacity: 0 }}
@@ -1151,60 +1196,9 @@ export function ChatbotWorkspace({ onNavigate }: ChatbotWorkspaceProps = {}) {
                 transition={{ delay: 0.5 }}
                 className="text-secondary"
               >
-                Powered by Ultra Instinct AI
+                Study smarter with guided explanations
               </motion.p>
             </motion.div>
-          </motion.div>
-        )}
-      </AnimatePresence>
-
-      {/* Left Tools Panel */}
-      <AnimatePresence>
-        {leftPanelOpen && (
-          <motion.div
-            initial={{ x: -300, opacity: 0 }}
-            animate={{ x: 0, opacity: 1 }}
-            exit={{ x: -300, opacity: 0 }}
-            transition={{ duration: 0.3, ease: 'easeInOut' }}
-            className="w-80 border-r border-border p-6 flex flex-col gap-4 fixed lg:relative z-30 h-screen lg:h-auto bg-white/98 dark:bg-[#10121A]/98 backdrop-blur-xl"
-          >
-            <div className="flex items-center justify-between mb-4">
-              <h3 className="text-xl">Quick Actions</h3>
-              <Button
-                variant="ghost"
-                size="icon"
-                onClick={() => setLeftPanelOpen(false)}
-              >
-                <X className="w-5 h-5" />
-              </Button>
-            </div>
-
-            <Button
-              className="w-full justify-start gap-3"
-              variant="outline"
-              onClick={() => setUploadModalOpen(true)}
-            >
-              <Upload className="w-5 h-5" />
-              Upload File
-            </Button>
-
-            <Button
-              className="w-full justify-start gap-3"
-              variant="outline"
-              onClick={() => toast.info('Camera feature coming soon!')}
-            >
-              <Camera className="w-5 h-5" />
-              Take Snapshot
-            </Button>
-
-
-            <Button
-              className="w-full justify-start gap-3"
-              variant="outline"
-            >
-              <Settings className="w-5 h-5" />
-              Card Preferences
-            </Button>
           </motion.div>
         )}
       </AnimatePresence>
@@ -1227,20 +1221,9 @@ export function ChatbotWorkspace({ onNavigate }: ChatbotWorkspaceProps = {}) {
                 </Button>
               )}
 
-              {!leftPanelOpen && (
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  onClick={() => setLeftPanelOpen(true)}
-                  className="hover:bg-accent"
-                >
-                  <ChevronRight className="w-5 h-5" />
-                </Button>
-              )}
-
               <div className="hidden sm:flex items-center gap-2">
-                <Brain className="w-6 h-6 text-blue-500" />
-                <h2 className="text-lg lg:text-xl whitespace-nowrap">AI Workspace</h2>
+                <GraduationCap className="w-6 h-6 text-blue-500" />
+                <h2 className="text-lg lg:text-xl whitespace-nowrap">AI Tutor</h2>
               </div>
             </div>
 
@@ -1296,16 +1279,6 @@ export function ChatbotWorkspace({ onNavigate }: ChatbotWorkspaceProps = {}) {
                 }}
               />
 
-              <Button
-                variant="ghost"
-                size="icon"
-                onClick={() => setShowHelp(true)}
-                className="hover:bg-accent"
-                title="Help"
-              >
-                <HelpCircle className="w-5 h-5" />
-              </Button>
-
               {!rightSidebarOpen && (
                 <Button
                   variant="ghost"
@@ -1347,13 +1320,21 @@ export function ChatbotWorkspace({ onNavigate }: ChatbotWorkspaceProps = {}) {
                 >
                   {/* User Messages */}
                   {message.type === 'user' && (
-                    <div className="max-w-2xl rounded-3xl px-6 py-4 bg-card dark:bg-gray-900/70 backdrop-blur-md border border-blue-500/30 dark:border-gray-700 shadow-lg">
+                    <div className="max-w-2xl rounded-3xl px-5 py-4 bg-card dark:bg-gray-900/70 backdrop-blur-md border border-blue-500/30 dark:border-gray-700 shadow-lg">
                       <div className="flex flex-row-reverse items-start gap-3">
                         <div className="w-8 h-8 rounded-full bg-blue-500 flex items-center justify-center flex-shrink-0 mt-0.5">
                           <UserRound className="w-4 h-4 text-white" />
                         </div>
-                        <div className="flex-1 min-w-0 text-right">
-                          <p className="text-foreground whitespace-pre-wrap leading-relaxed">{message.content}</p>
+                        <div className="flex-1 min-w-0 space-y-3 text-right">
+                          {message.content && (
+                            <p className="text-foreground whitespace-pre-wrap leading-relaxed">{message.content}</p>
+                          )}
+                          {message.attachmentName && (
+                            <div className="ml-auto flex max-w-full items-center gap-2 rounded-xl border border-blue-500/25 bg-blue-500/10 px-3 py-2 text-left">
+                              <FileText className="h-4 w-4 flex-shrink-0 text-blue-400" />
+                              <span className="truncate text-sm font-medium text-foreground">{message.attachmentName}</span>
+                            </div>
+                          )}
                           <span className="text-xs text-muted-foreground mt-2 block">
                             {message.timestamp.toLocaleTimeString()}
                           </span>
@@ -1624,14 +1605,14 @@ export function ChatbotWorkspace({ onNavigate }: ChatbotWorkspaceProps = {}) {
                 <div className="rounded-3xl px-6 py-4 bg-white/95 dark:bg-[#1C1F2A]/95 backdrop-blur-md shadow-lg">
                   <div className="flex items-center gap-4">
                     <div className="w-8 h-8 rounded-full bg-gradient-to-br from-blue-500 to-purple-600 flex items-center justify-center flex-shrink-0">
-                      <Sparkles className="w-5 h-5 text-white" />
+                      <GraduationCap className="w-5 h-5 text-white" />
                     </div>
                     <div className="flex items-center gap-1">
                       <div className="w-2 h-2 bg-blue-400 rounded-full typing-dot"></div>
                       <div className="w-2 h-2 bg-purple-400 rounded-full typing-dot"></div>
                       <div className="w-2 h-2 bg-blue-400 rounded-full typing-dot"></div>
                     </div>
-                    <span className="text-sm text-muted-foreground">AI is thinking...</span>
+                    <span className="text-sm text-muted-foreground">Tutor is thinking...</span>
                   </div>
                 </div>
               </motion.div>
@@ -1662,6 +1643,28 @@ export function ChatbotWorkspace({ onNavigate }: ChatbotWorkspaceProps = {}) {
 
 
 
+            {pendingFile && (
+              <div className="mb-3 flex items-center justify-between gap-3 rounded-lg border border-blue-500/30 bg-blue-500/10 px-3 py-2">
+                <div className="flex min-w-0 items-center gap-2">
+                  <FileText className="h-4 w-4 flex-shrink-0 text-blue-400" />
+                  <span className="truncate text-sm text-foreground">{pendingFile.name}</span>
+                </div>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="h-7 w-7 flex-shrink-0 rounded-full"
+                  onClick={() => {
+                    setPendingFile(null);
+                    if (fileInputRef.current) {
+                      fileInputRef.current.value = '';
+                    }
+                  }}
+                >
+                  <X className="h-4 w-4" />
+                </Button>
+              </div>
+            )}
+
             <div className="flex items-center gap-3">
               <Button
                 variant="outline"
@@ -1691,7 +1694,7 @@ export function ChatbotWorkspace({ onNavigate }: ChatbotWorkspaceProps = {}) {
                 size="icon"
                 className="rounded-full flex-shrink-0 bg-gradient-to-r from-blue-500 to-purple-600 hover:from-blue-600 hover:to-purple-700"
                 onClick={handleSendMessage}
-                disabled={!inputValue.trim()}
+                disabled={!inputValue.trim() && !pendingFile}
               >
                 <Send className="w-5 h-5" />
               </Button>
@@ -1824,7 +1827,7 @@ export function ChatbotWorkspace({ onNavigate }: ChatbotWorkspaceProps = {}) {
                   setRightSidebarOpen(false);
                 }}
               >
-                <Sparkles className="w-4 h-4" />
+                <Layers className="w-4 h-4" />
                 Create Flashcards from Chat
               </Button>
 
@@ -1836,17 +1839,8 @@ export function ChatbotWorkspace({ onNavigate }: ChatbotWorkspaceProps = {}) {
                   setRightSidebarOpen(false);
                 }}
               >
-                <Play className="w-4 h-4" />
+                <ListChecks className="w-4 h-4" />
                 Create Quiz from Chat
-              </Button>
-
-              <Button
-                className="w-full h-12 justify-start gap-2 hover:bg-gradient-to-r hover:from-blue-500/10 hover:to-purple-500/10 transition-all"
-                variant="outline"
-                onClick={handleSaveDeck}
-              >
-                <Save className="w-4 h-4" />
-                Save Deck
               </Button>
 
               <Button
@@ -1895,13 +1889,6 @@ export function ChatbotWorkspace({ onNavigate }: ChatbotWorkspaceProps = {}) {
           </motion.div>
         )}
       </AnimatePresence>
-
-      {/* Emotional Feedback Popup - Shows every 30 seconds when camera is disabled */}
-      <EmotionalFeedbackPopup
-        isVisible={showEmotionalFeedback}
-        onClose={() => setShowEmotionalFeedback(false)}
-        onFeedback={handleEmotionalFeedback}
-      />
 
       {/* Right Sidebar - Mobile Sheet */}
       <Sheet open={rightSidebarOpen} onOpenChange={setRightSidebarOpen}>
@@ -2019,7 +2006,7 @@ export function ChatbotWorkspace({ onNavigate }: ChatbotWorkspaceProps = {}) {
                   setRightSidebarOpen(false);
                 }}
               >
-                <Sparkles className="w-4 h-4" />
+                <Layers className="w-4 h-4" />
                 Create Flashcards from Chat
               </Button>
 
@@ -2031,21 +2018,10 @@ export function ChatbotWorkspace({ onNavigate }: ChatbotWorkspaceProps = {}) {
                   setRightSidebarOpen(false);
                 }}
               >
-                <Play className="w-4 h-4" />
+                <ListChecks className="w-4 h-4" />
                 Create Quiz from Chat
               </Button>
 
-              <Button
-                className="w-full h-12 justify-start gap-2 hover:bg-gradient-to-r hover:from-blue-500/10 hover:to-purple-500/10 transition-all"
-                variant="outline"
-                onClick={() => {
-                  handleSaveDeck();
-                  setRightSidebarOpen(false);
-                }}
-              >
-                <Save className="w-4 h-4" />
-                Save Deck
-              </Button>
             </div>
 
             {/* Session Summary */}
@@ -2094,7 +2070,7 @@ export function ChatbotWorkspace({ onNavigate }: ChatbotWorkspaceProps = {}) {
             <input
               ref={fileInputRef}
               type="file"
-              accept=".pdf,.ppt,.pptx,.doc,.docx,.txt"
+              accept={fileAccept}
               onChange={handleFileUpload}
               className="hidden"
             />
@@ -2103,7 +2079,7 @@ export function ChatbotWorkspace({ onNavigate }: ChatbotWorkspaceProps = {}) {
               <Button
                 variant="outline"
                 className="h-24 flex flex-col gap-2"
-                onClick={() => fileInputRef.current?.click()}
+                onClick={() => openFilePicker('.pdf')}
               >
                 <FileText className="w-8 h-8 text-red-400" />
                 <span className="text-sm">PDF</span>
@@ -2112,7 +2088,7 @@ export function ChatbotWorkspace({ onNavigate }: ChatbotWorkspaceProps = {}) {
               <Button
                 variant="outline"
                 className="h-24 flex flex-col gap-2"
-                onClick={() => fileInputRef.current?.click()}
+                onClick={() => openFilePicker('.ppt,.pptx')}
               >
                 <Presentation className="w-8 h-8 text-orange-400" />
                 <span className="text-sm">PowerPoint</span>
@@ -2121,7 +2097,7 @@ export function ChatbotWorkspace({ onNavigate }: ChatbotWorkspaceProps = {}) {
               <Button
                 variant="outline"
                 className="h-24 flex flex-col gap-2"
-                onClick={() => fileInputRef.current?.click()}
+                onClick={() => openFilePicker('.doc,.docx')}
               >
                 <FileText className="w-8 h-8 text-blue-400" />
                 <span className="text-sm">Ms Word</span>
@@ -2130,7 +2106,7 @@ export function ChatbotWorkspace({ onNavigate }: ChatbotWorkspaceProps = {}) {
               <Button
                 variant="outline"
                 className="h-24 flex flex-col gap-2"
-                onClick={() => fileInputRef.current?.click()}
+                onClick={() => openFilePicker('.txt')}
               >
                 <FileText className="w-8 h-8 text-green-400" />
                 <span className="text-sm">Text File</span>
@@ -2140,24 +2116,20 @@ export function ChatbotWorkspace({ onNavigate }: ChatbotWorkspaceProps = {}) {
         </DialogContent>
       </Dialog>
 
-      {/* Help Guide Dialog */}
-      <Dialog open={showHelp} onOpenChange={setShowHelp}>
-        <DialogContent className=" max-w-2xl">
-          <DialogHeader>
-            <DialogTitle className="flex items-center gap-2 text-2xl">
-              <Sparkles className="w-6 h-6 text-blue-500" />
-              AI Learning Workspace Guide
-            </DialogTitle>
-            <DialogDescription>
-              Learn how to use the AI chatbot workspace for maximum productivity.
-            </DialogDescription>
-          </DialogHeader>
-
-          <div className="space-y-6 max-h-[60vh] overflow-y-auto">
-            {/* Quick Start */}
+      {false && (
+        <Dialog open={false} onOpenChange={() => undefined}>
+          <DialogContent className=" max-w-2xl">
+            <DialogHeader>
+              <DialogTitle>AI Learning Workspace Guide</DialogTitle>
+              <DialogDescription>
+                Learn how to use the AI chatbot workspace for maximum productivity.
+              </DialogDescription>
+            </DialogHeader>
+            <div className="space-y-6 max-h-[60vh] overflow-y-auto">
+              {/* Quick Start */}
             <div>
               <h3 className="text-lg mb-3 flex items-center gap-2">
-                <Zap className="w-5 h-5 text-yellow-500" />
+                <GraduationCap className="w-5 h-5 text-yellow-500" />
                 Quick Start
               </h3>
               <div className="space-y-2 text-sm text-secondary">
@@ -2173,7 +2145,7 @@ export function ChatbotWorkspace({ onNavigate }: ChatbotWorkspaceProps = {}) {
             {/* Features */}
             <div>
               <h3 className="text-lg mb-3 flex items-center gap-2">
-                <Brain className="w-5 h-5 text-purple-500" />
+                <GraduationCap className="w-5 h-5 text-purple-500" />
                 Key Features
               </h3>
               <div className="grid grid-cols-2 gap-3">
@@ -2199,7 +2171,7 @@ export function ChatbotWorkspace({ onNavigate }: ChatbotWorkspaceProps = {}) {
             {/* Keyboard Shortcuts */}
             <div>
               <h3 className="text-lg mb-3 flex items-center gap-2">
-                <Target className="w-5 h-5 text-teal-500" />
+                <ListChecks className="w-5 h-5 text-teal-500" />
                 Keyboard Shortcuts
               </h3>
               <div className="space-y-2 text-sm">
@@ -2225,7 +2197,7 @@ export function ChatbotWorkspace({ onNavigate }: ChatbotWorkspaceProps = {}) {
             {/* Tips */}
             <div>
               <h3 className="text-lg mb-3 flex items-center gap-2">
-                <MessageCircle className="w-5 h-5 text-green-500" />
+                <GraduationCap className="w-5 h-5 text-green-500" />
                 Pro Tips
               </h3>
               <div className="space-y-2 text-sm text-secondary">
@@ -2239,12 +2211,13 @@ export function ChatbotWorkspace({ onNavigate }: ChatbotWorkspaceProps = {}) {
           </div>
 
           <div className="flex justify-end gap-3 pt-4 border-t border-border">
-            <Button onClick={() => setShowHelp(false)}>
+            <Button onClick={() => undefined}>
               Got it!
             </Button>
           </div>
         </DialogContent>
       </Dialog>
+      )}
 
       {/* Emotional Feedback Popup */}
       <EmotionalFeedbackPopup

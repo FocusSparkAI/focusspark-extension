@@ -1,6 +1,6 @@
 import * as React from 'react';
 import { motion } from 'motion/react';
-import { Sparkles } from 'lucide-react';
+import { GraduationCap } from 'lucide-react';
 
 interface FormattedAIMessageProps {
   content: string;
@@ -144,7 +144,7 @@ export function FormattedAIMessage({ content, timestamp }: FormattedAIMessagePro
           }}
           className="w-8 h-8 rounded-full bg-gradient-to-br from-blue-500 to-purple-600 flex items-center justify-center flex-shrink-0"
         >
-          <Sparkles className="w-5 h-5 text-white" />
+          <GraduationCap className="w-5 h-5 text-white" />
         </motion.div>
         
         <div className="flex-1 min-w-0">

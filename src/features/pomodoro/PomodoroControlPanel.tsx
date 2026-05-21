@@ -12,7 +12,8 @@ export function PomodoroControlPanel({ isOpen, onClose }: PomodoroControlPanelPr
   const {
     phase,
     isActive,
-    sessionType,
+    focusMinutes,
+    breakMinutes,
     pauseSession,
     resumeSession,
     cancelSession,
@@ -21,14 +22,12 @@ export function PomodoroControlPanel({ isOpen, onClose }: PomodoroControlPanelPr
     endSession,
   } = usePomodoro();
 
-  // Only show panel when timer is active or paused
   if (phase === 'idle') return null;
 
   return (
     <AnimatePresence>
       {isOpen && (
         <>
-          {/* Backdrop */}
           <motion.div
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
@@ -37,7 +36,6 @@ export function PomodoroControlPanel({ isOpen, onClose }: PomodoroControlPanelPr
             onClick={onClose}
           />
 
-          {/* Control Panel */}
           <motion.div
             initial={{ opacity: 0, scale: 0.95, y: -10 }}
             animate={{ opacity: 1, scale: 1, y: 0 }}
@@ -46,7 +44,6 @@ export function PomodoroControlPanel({ isOpen, onClose }: PomodoroControlPanelPr
             className="fixed top-20 right-4 sm:right-8 md:right-12 lg:right-16 z-50 w-80 sm:w-96"
           >
             <div className="bg-white dark:bg-[#1C1F2A] border border-border rounded-2xl shadow-2xl overflow-hidden backdrop-blur-xl">
-              {/* Header */}
               <div className="p-4 border-b border-border bg-gradient-to-r from-purple-500/10 to-blue-500/10">
                 <div className="flex items-center justify-between">
                   <div>
@@ -54,7 +51,7 @@ export function PomodoroControlPanel({ isOpen, onClose }: PomodoroControlPanelPr
                       {phase === 'break' ? 'Break Time' : 'Focus Session'}
                     </h3>
                     <p className="text-sm text-secondary mt-0.5">
-                      {sessionType} session
+                      {focusMinutes} min focus • {breakMinutes} min break
                     </p>
                   </div>
                   <Button
@@ -68,12 +65,9 @@ export function PomodoroControlPanel({ isOpen, onClose }: PomodoroControlPanelPr
                 </div>
               </div>
 
-              {/* Controls */}
               <div className="p-4 space-y-3">
-                {/* Focus Session Controls */}
                 {(phase === 'focus' || phase === 'paused') && (
                   <>
-                    {/* Pause/Resume */}
                     <Button
                       onClick={isActive ? pauseSession : resumeSession}
                       className="w-full bg-gradient-to-r from-blue-500 to-purple-600 hover:opacity-90"
@@ -92,7 +86,6 @@ export function PomodoroControlPanel({ isOpen, onClose }: PomodoroControlPanelPr
                       )}
                     </Button>
 
-                    {/* I Have Done */}
                     <Button
                       onClick={completeEarly}
                       variant="outline"
@@ -100,10 +93,9 @@ export function PomodoroControlPanel({ isOpen, onClose }: PomodoroControlPanelPr
                       size="lg"
                     >
                       <CheckCircle className="w-5 h-5 mr-2 text-green-400" />
-                      I have done
+                      Complete session
                     </Button>
 
-                    {/* Cancel */}
                     <Button
                       onClick={cancelSession}
                       variant="outline"
@@ -116,10 +108,8 @@ export function PomodoroControlPanel({ isOpen, onClose }: PomodoroControlPanelPr
                   </>
                 )}
 
-                {/* Break Controls */}
                 {phase === 'break' && (
                   <>
-                    {/* Pause/Resume Break */}
                     <Button
                       onClick={isActive ? pauseSession : resumeSession}
                       className="w-full bg-gradient-to-r from-green-500 to-teal-600 hover:opacity-90"
@@ -138,7 +128,6 @@ export function PomodoroControlPanel({ isOpen, onClose }: PomodoroControlPanelPr
                       )}
                     </Button>
 
-                    {/* Skip Break */}
                     <Button
                       onClick={skipBreak}
                       variant="outline"
@@ -149,7 +138,6 @@ export function PomodoroControlPanel({ isOpen, onClose }: PomodoroControlPanelPr
                       Skip Break
                     </Button>
 
-                    {/* End Session */}
                     <Button
                       onClick={endSession}
                       variant="outline"
@@ -163,12 +151,11 @@ export function PomodoroControlPanel({ isOpen, onClose }: PomodoroControlPanelPr
                 )}
               </div>
 
-              {/* Tips */}
               <div className="p-4 border-t border-border bg-muted/30">
                 <p className="text-xs text-secondary">
                   {phase === 'break'
-                    ? '☕ Take a break! Stretch, hydrate, and rest your eyes.'
-                    : '🎯 Stay focused! Minimize distractions and work on one task at a time.'}
+                    ? 'Take a break. Stretch, hydrate, and rest your eyes.'
+                    : 'Stay focused. Minimize distractions and work on one task at a time.'}
                 </p>
               </div>
             </div>

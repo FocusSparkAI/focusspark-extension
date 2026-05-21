@@ -4,9 +4,9 @@ import {
   ArrowRight,
   Bot,
   ClipboardCheck,
-  CreditCard,
   History,
   LayoutDashboard,
+  Layers,
   MousePointerClick,
   Save,
   ShieldCheck,
@@ -26,6 +26,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '../../components/ui/ca
 import { Input } from '../../components/ui/input';
 import { Label } from '../../components/ui/label';
 import { useFocus } from '../../context/FocusContext';
+import { usePomodoro } from '../../context/PomodoroContext';
 
 interface StudentDashboardProps {
   onNavigate: (page: string) => void;
@@ -44,7 +45,7 @@ const overviewStats = [
     label: 'Flashcards',
     value: '12',
     helper: 'Cards ready for review',
-    icon: CreditCard,
+    icon: Layers,
     color: 'text-emerald-500',
   },
   {
@@ -74,7 +75,7 @@ const studyTools = [
   {
     title: 'Flashcards',
     description: 'Review saved concepts and practice active recall without leaving your flow.',
-    icon: CreditCard,
+    icon: Layers,
     page: 'flashcards',
     action: 'Review cards',
   },
@@ -96,25 +97,42 @@ const studyTools = [
 
 export function StudentDashboard({ onNavigate, onLogout }: StudentDashboardProps) {
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
-  const [focusMinutes, setFocusMinutes] = useState(() => {
+  const [savedFocusMinutes, setSavedFocusMinutes] = useState(() => {
     const saved = Number(localStorage.getItem('focusspark-extension-focus-minutes'));
     return Number.isFinite(saved) && saved > 0 ? saved : 25;
   });
-  const [breakMinutes, setBreakMinutes] = useState(() => {
+  const [savedBreakMinutes, setSavedBreakMinutes] = useState(() => {
     const saved = Number(localStorage.getItem('focusspark-extension-break-minutes'));
     return Number.isFinite(saved) && saved > 0 ? saved : 5;
   });
+  const [draftFocusMinutes, setDraftFocusMinutes] = useState(savedFocusMinutes);
+  const [draftBreakMinutes, setDraftBreakMinutes] = useState(savedBreakMinutes);
   const { isDetectionEnabled } = useFocus();
+  const { startSession } = usePomodoro();
 
   const savePomodoroTimings = () => {
-    const nextFocus = Math.min(120, Math.max(5, focusMinutes));
-    const nextBreak = Math.min(60, Math.max(1, breakMinutes));
+    const nextFocus = Math.min(120, Math.max(5, draftFocusMinutes));
+    const nextBreak = Math.min(60, Math.max(1, draftBreakMinutes));
 
-    setFocusMinutes(nextFocus);
-    setBreakMinutes(nextBreak);
+    setSavedFocusMinutes(nextFocus);
+    setSavedBreakMinutes(nextBreak);
+    setDraftFocusMinutes(nextFocus);
+    setDraftBreakMinutes(nextBreak);
     localStorage.setItem('focusspark-extension-focus-minutes', String(nextFocus));
     localStorage.setItem('focusspark-extension-break-minutes', String(nextBreak));
-    toast.success('Pomodoro timings saved');
+    toast.success(`Saved ${nextFocus} min focus / ${nextBreak} min break`);
+  };
+
+  const startSavedPomodoroInTutor = () => {
+    const nextFocus = Math.min(120, Math.max(5, savedFocusMinutes));
+    const nextBreak = Math.min(60, Math.max(1, savedBreakMinutes));
+
+    setSavedFocusMinutes(nextFocus);
+    setSavedBreakMinutes(nextBreak);
+    localStorage.setItem('focusspark-extension-focus-minutes', String(nextFocus));
+    localStorage.setItem('focusspark-extension-break-minutes', String(nextBreak));
+    startSession('custom', { focusMinutes: nextFocus, breakMinutes: nextBreak });
+    onNavigate('chatbot');
   };
 
   return (
@@ -161,7 +179,7 @@ export function StudentDashboard({ onNavigate, onLogout }: StudentDashboardProps
                     Open AI Tutor
                   </Button>
                   <Button variant="outline" onClick={() => onNavigate('flashcards')}>
-                    <CreditCard className="mr-2 h-4 w-4" />
+                    <Layers className="mr-2 h-4 w-4" />
                     Flashcards
                   </Button>
                 </div>
@@ -290,8 +308,9 @@ export function StudentDashboard({ onNavigate, onLogout }: StudentDashboardProps
 
               <aside className="space-y-6">
                 <PomodoroTimer
-                  focusMinutes={focusMinutes}
-                  breakMinutes={breakMinutes}
+                  focusMinutes={savedFocusMinutes}
+                  breakMinutes={savedBreakMinutes}
+                  onStart={startSavedPomodoroInTutor}
                   settingsSlot={
                     <div className="rounded-xl border border-border bg-background p-3">
                       <div className="grid grid-cols-2 gap-3">
@@ -305,10 +324,10 @@ export function StudentDashboard({ onNavigate, onLogout }: StudentDashboardProps
                               type="number"
                               min={5}
                               max={120}
-                              value={focusMinutes}
+                              value={draftFocusMinutes}
                               className="h-9"
                               onChange={(event) =>
-                                setFocusMinutes(Math.max(5, Number(event.target.value) || 5))
+                                setDraftFocusMinutes(Math.max(5, Number(event.target.value) || 5))
                               }
                             />
                             <span className="text-xs text-secondary">min</span>
@@ -325,10 +344,10 @@ export function StudentDashboard({ onNavigate, onLogout }: StudentDashboardProps
                               type="number"
                               min={1}
                               max={60}
-                              value={breakMinutes}
+                              value={draftBreakMinutes}
                               className="h-9"
                               onChange={(event) =>
-                                setBreakMinutes(Math.max(1, Number(event.target.value) || 1))
+                                setDraftBreakMinutes(Math.max(1, Number(event.target.value) || 1))
                               }
                             />
                             <span className="text-xs text-secondary">min</span>

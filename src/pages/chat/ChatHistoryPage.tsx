@@ -57,6 +57,7 @@ interface ChatMessage {
   role: 'user' | 'ai' | 'system' | 'flashcard' | 'quiz';
   text: string;
   time: string;
+  attachmentName?: string;
   backendMessageId?: number;
   chips?: ChatChipType['type'][];
   flashcards?: Flashcard[];
@@ -85,6 +86,33 @@ const stripTutorPromptWrapper = (text: string) => {
 
   const userMessageMatch = trimmedText.match(/(?:^|\n)USER:\s*([\s\S]*?)(?:\n\s*Respond naturally[\s\S]*)?$/i);
   return userMessageMatch?.[1]?.trim() || trimmedText;
+};
+
+const getAttachmentNameFromText = (text: string) => {
+  const attachmentMatch = text.match(/(?:^|\n)\s*Attached:\s*(.+?)\s*(?:\n|$)/i);
+  return attachmentMatch?.[1]?.trim() || '';
+};
+
+const getDisplayUserText = (text: string) => {
+  const lines = text
+    .split(/\n+/)
+    .map((line) => line.trim())
+    .filter(Boolean);
+
+  const plainLines = lines.filter(
+    (line) => !/^Attached:\s*/i.test(line) && !/^(AI|USER):\s*/i.test(line),
+  );
+
+  if (plainLines.length > 0) {
+    return plainLines.join('\n');
+  }
+
+  const userLines = lines
+    .filter((line) => /^USER:\s*/i.test(line))
+    .map((line) => line.replace(/^USER:\s*/i, '').trim())
+    .filter(Boolean);
+
+  return userLines.at(-1) ?? '';
 };
 
 const ICON_MAP: Record<ChatIcon, { Icon: React.ElementType; colorClass: string }> = {
@@ -455,25 +483,78 @@ export function ChatHistoryPage({ onNavigate }: ChatHistoryPageProps = {}) {
       .filter((question) => question.question.length > 0 && question.options.length > 0);
   };
 
-  const resolveThreadDisplayName = (thread: Record<string, unknown>, messages: ChatMessage[], index: number) => {
-    const fallbackName = `Chat ${index + 1}`;
-    const firstUserMessage = stripTutorPromptWrapper(messages.find((message) => message.role === 'user')?.text ?? '');
-    if (firstUserMessage) {
-      return firstUserMessage.length > 40 ? `${firstUserMessage.slice(0, 40)}...` : firstUserMessage;
-    }
+  const truncateThreadText = (text: string, maxLength = 40) => (
+    text.length > maxLength ? `${text.slice(0, maxLength)}...` : text
+  );
 
-    const metadataQuestion = getRawText(thread, [
+  const getFirstUserThreadText = (thread: Record<string, unknown>, messages: ChatMessage[]) => {
+    const firstUserMessage = stripTutorPromptWrapper(messages.find((message) => message.role === 'user')?.text ?? '');
+    if (firstUserMessage) return firstUserMessage;
+
+    return getRawText(thread, [
       'first_user_message',
       'firstUserMessage',
       'first_question',
       'firstQuestion',
+      'user_message',
+      'userMessage',
       'question',
       'prompt',
+      'input',
       'last_user_message',
       'lastUserMessage',
+      'uploaded_file',
+      'uploadedFile',
+      'file_name',
+      'fileName',
+      'document_name',
+      'documentName',
     ]);
-    if (metadataQuestion) {
-      return metadataQuestion.length > 40 ? `${metadataQuestion.slice(0, 40)}...` : metadataQuestion;
+  };
+
+  const getThreadPreviewText = (thread: Record<string, unknown>, messages: ChatMessage[]) => {
+    const userThreadText = getFirstUserThreadText(thread, messages);
+    if (userThreadText) return userThreadText;
+
+    const preview = String(thread.preview ?? thread.summary ?? '').trim();
+    if (preview && preview.toLowerCase() !== 'focusspark ai tutor') {
+      return preview;
+    }
+
+    const title = String(thread.name ?? thread.title ?? thread.subject ?? '').trim();
+    if (title && title.toLowerCase() !== 'focusspark ai tutor') {
+      return title;
+    }
+
+    return '';
+  };
+
+  const withThreadContextMessage = (thread: Record<string, unknown>, messages: ChatMessage[], threadId: string) => {
+    if (messages.some((message) => message.role === 'user')) {
+      return messages;
+    }
+
+    const userThreadText = getFirstUserThreadText(thread, messages);
+    if (!userThreadText) {
+      return messages;
+    }
+
+    return [
+      {
+        id: `${threadId}-thread-context`,
+        role: 'user' as const,
+        text: userThreadText,
+        time: '',
+      },
+      ...messages,
+    ];
+  };
+
+  const resolveThreadDisplayName = (thread: Record<string, unknown>, messages: ChatMessage[], index: number) => {
+    const fallbackName = `Chat ${index + 1}`;
+    const userThreadText = getFirstUserThreadText(thread, messages);
+    if (userThreadText) {
+      return truncateThreadText(userThreadText);
     }
 
     const title = String(thread.name ?? thread.title ?? thread.subject ?? '').trim();
@@ -483,12 +564,7 @@ export function ChatHistoryPage({ onNavigate }: ChatHistoryPageProps = {}) {
 
     const preview = String(thread.preview ?? thread.summary ?? '').trim();
     if (preview && preview.toLowerCase() !== 'focusspark ai tutor') {
-      return preview.length > 40 ? `${preview.slice(0, 40)}...` : preview;
-    }
-
-    const firstAiMessage = messages.find((message) => message.role === 'ai')?.text.trim();
-    if (firstAiMessage) {
-      return firstAiMessage.length > 40 ? `${firstAiMessage.slice(0, 40)}...` : firstAiMessage;
+      return truncateThreadText(preview);
     }
 
     return fallbackName;
@@ -630,15 +706,8 @@ export function ChatHistoryPage({ onNavigate }: ChatHistoryPageProps = {}) {
       : Array.isArray((thread as Record<string, any>).data?.messages)
         ? ((thread as Record<string, any>).data?.messages as unknown[])
         : [];
-    const messages = await normalizeThreadMessages(threadId, rawMessages, authHeaders);
-    const metadataPreview = getRawText(thread, ['first_user_message', 'firstUserMessage', 'question', 'prompt']);
-    const previewSource = String(
-      metadataPreview ||
-        thread.preview ||
-        thread.summary ||
-        messages.find((message) => message.role === 'ai')?.text ||
-        'Open chat history',
-    );
+    const messages = withThreadContextMessage(thread, await normalizeThreadMessages(threadId, rawMessages, authHeaders), threadId);
+    const previewSource = getThreadPreviewText(thread, messages) || 'Open chat history';
     const timeSource = thread.updated_at ?? thread.created_at ?? thread.last_message_at ?? thread.timestamp;
 
     return {
@@ -664,16 +733,14 @@ export function ChatHistoryPage({ onNavigate }: ChatHistoryPageProps = {}) {
             ? threadPayload.data.messages
             : [];
 
-      const messages = await normalizeThreadMessages(threadId, rawMessages as unknown[], authHeaders);
       const threadObject = (Array.isArray(threadPayload) ? {} : (threadPayload as Record<string, unknown>)) as Record<string, unknown>;
-      const displayName = resolveThreadDisplayName(threadObject, messages, index);
-      const previewSource = String(
-        messages.find((message) => message.role === 'user')?.text ||
-          threadObject.preview ||
-          threadObject.summary ||
-          messages.find((message) => message.role === 'ai')?.text ||
-          'Open chat history',
+      const messages = withThreadContextMessage(
+        threadObject,
+        await normalizeThreadMessages(threadId, rawMessages as unknown[], authHeaders),
+        threadId,
       );
+      const displayName = resolveThreadDisplayName(threadObject, messages, index);
+      const previewSource = getThreadPreviewText(threadObject, messages) || 'Open chat history';
       const timeSource = threadObject.updated_at ?? threadObject.created_at ?? threadObject.last_message_at ?? threadObject.timestamp;
 
       return {
@@ -985,19 +1052,32 @@ export function ChatHistoryPage({ onNavigate }: ChatHistoryPageProps = {}) {
                       className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}
                     >
                       {/* User Messages — exact ChatbotWorkspace style */}
-                      {msg.role === 'user' && (
-                        <div className="max-w-2xl rounded-3xl px-6 py-4 bg-blue-500/10 dark:bg-blue-500/15 backdrop-blur-md border border-blue-500/25 shadow-lg">
-                          <div className="flex flex-row-reverse items-start gap-3">
-                            <div className="w-8 h-8 rounded-full bg-blue-500 flex items-center justify-center flex-shrink-0 mt-0.5">
-                              <UserRound className="w-4 h-4 text-white" />
-                            </div>
-                            <div className="flex-1 min-w-0 text-right">
-                              <p className="text-foreground whitespace-pre-wrap leading-relaxed">{msg.text}</p>
-                              <span className="text-xs text-muted-foreground mt-2 block">{msg.time}</span>
+                      {msg.role === 'user' && (() => {
+                        const displayText = getDisplayUserText(msg.text);
+                        const attachmentName = msg.attachmentName ?? getAttachmentNameFromText(msg.text);
+
+                        return (
+                          <div className="max-w-2xl rounded-3xl px-5 py-4 bg-card dark:bg-gray-900/70 backdrop-blur-md border border-blue-500/30 dark:border-gray-700 shadow-lg">
+                            <div className="flex flex-row-reverse items-start gap-3">
+                              <div className="w-8 h-8 rounded-full bg-blue-500 flex items-center justify-center flex-shrink-0 mt-0.5">
+                                <UserRound className="w-4 h-4 text-white" />
+                              </div>
+                              <div className="flex-1 min-w-0 space-y-3 text-right">
+                                {displayText && (
+                                  <p className="text-foreground whitespace-pre-wrap leading-relaxed">{displayText}</p>
+                                )}
+                                {attachmentName && (
+                                  <div className="ml-auto flex max-w-full items-center gap-2 rounded-xl border border-blue-500/25 bg-blue-500/10 px-3 py-2 text-left">
+                                    <FileText className="h-4 w-4 flex-shrink-0 text-blue-400" />
+                                    <span className="truncate text-sm font-medium text-foreground">{attachmentName}</span>
+                                  </div>
+                                )}
+                                <span className="text-xs text-muted-foreground mt-2 block">{msg.time}</span>
+                              </div>
                             </div>
                           </div>
-                        </div>
-                      )}
+                        );
+                      })()}
 
                       {/* AI Messages */}
                       {msg.role === 'ai' && (

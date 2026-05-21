@@ -9,8 +9,8 @@ interface FocusContextType {
   setFocusScore: (value: number) => void;
   totalFocusedMinutes: number;
   addFocusedTime: (minutes: number) => void;
-  emotionalState: 'happy' | 'neutral' | 'sad';
-  setEmotionalState: (value: 'happy' | 'neutral' | 'sad') => void;
+  emotionalState: 'happy' | 'tired' | 'neutral' | 'sad';
+  setEmotionalState: (value: 'happy' | 'tired' | 'neutral' | 'sad') => void;
 }
 
 const FocusContext = createContext<FocusContextType>({
@@ -37,7 +37,7 @@ export const FocusProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     const saved = localStorage.getItem('focusspark-total-focus-time');
     return saved ? parseInt(saved, 10) : 0;
   });
-  const [emotionalState, setEmotionalState] = useState<'happy' | 'neutral' | 'sad'>('neutral');
+  const [emotionalState, setEmotionalState] = useState<'happy' | 'tired' | 'neutral' | 'sad'>('neutral');
 
   const addFocusedTime = (minutes: number) => {
     setTotalFocusedMinutes((prev) => {

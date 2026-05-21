@@ -9,7 +9,7 @@ interface TimerButtonProps {
 }
 
 export function TimerButton({ onClick, className = '' }: TimerButtonProps) {
-  const { phase, isActive } = usePomodoro();
+  const { phase, isActive, timeRemaining } = usePomodoro();
 
   // Determine variant based on phase
   const getVariant = () => {
@@ -20,6 +20,16 @@ export function TimerButton({ onClick, className = '' }: TimerButtonProps) {
   };
 
   const variant = getVariant();
+  const showTime = phase !== 'idle';
+  const minutes = Math.floor(timeRemaining / 60);
+  const seconds = timeRemaining % 60;
+  const formattedTime = `${minutes}:${seconds.toString().padStart(2, '0')}`;
+  const phaseLabel =
+    phase === 'break'
+      ? 'Break'
+      : phase === 'paused'
+      ? 'Paused'
+      : 'Focus';
 
   // Colors and styles based on variant
   const variantStyles = {
@@ -29,7 +39,6 @@ export function TimerButton({ onClick, className = '' }: TimerButtonProps) {
       bgGradient: 'from-purple-500/10 to-blue-500/10',
       hoverGradient: 'hover:from-purple-500/20 hover:to-blue-500/20',
       glow: 'rgba(139, 92, 246, 0)',
-      showBadge: false,
     },
     running: {
       iconColor: 'text-blue-400',
@@ -37,7 +46,6 @@ export function TimerButton({ onClick, className = '' }: TimerButtonProps) {
       bgGradient: 'from-blue-500/20 to-teal-500/20',
       hoverGradient: 'hover:from-blue-500/30 hover:to-teal-500/30',
       glow: 'rgba(59, 130, 246, 0.5)',
-      showBadge: true,
     },
     paused: {
       iconColor: 'text-amber-400',
@@ -45,7 +53,6 @@ export function TimerButton({ onClick, className = '' }: TimerButtonProps) {
       bgGradient: 'from-amber-500/20 to-orange-500/20',
       hoverGradient: 'hover:from-amber-500/30 hover:to-orange-500/30',
       glow: 'rgba(245, 158, 11, 0.4)',
-      showBadge: true,
     },
     break: {
       iconColor: 'text-green-400',
@@ -53,7 +60,6 @@ export function TimerButton({ onClick, className = '' }: TimerButtonProps) {
       bgGradient: 'from-green-500/20 to-teal-500/20',
       hoverGradient: 'hover:from-green-500/30 hover:to-teal-500/30',
       glow: 'rgba(16, 185, 129, 0.4)',
-      showBadge: true,
     },
   };
 
@@ -63,10 +69,11 @@ export function TimerButton({ onClick, className = '' }: TimerButtonProps) {
     <motion.div className="relative">
       <Button
         variant="outline"
-        size="icon"
+        size={showTime ? 'sm' : 'icon'}
         onClick={onClick}
         className={`
           relative
+          ${showTime ? 'h-10 min-w-[92px] gap-2 px-3 justify-center' : ''}
           bg-gradient-to-r ${styles.bgGradient}
           ${styles.borderColor}
           ${styles.hoverGradient}
@@ -99,21 +106,13 @@ export function TimerButton({ onClick, className = '' }: TimerButtonProps) {
           <Clock className={`w-5 h-5 ${styles.iconColor}`} />
         </motion.div>
 
-        {/* Running Badge - small pulsing dot */}
-        {styles.showBadge && (
-          <motion.div
-            className="absolute -top-1 -right-1 w-2.5 h-2.5 rounded-full bg-gradient-to-r from-blue-400 to-purple-500"
-            animate={{
-              scale: [1, 1.3, 1],
-              opacity: [1, 0.6, 1],
-            }}
-            transition={{
-              duration: 1.5,
-              repeat: Infinity,
-              ease: 'easeInOut',
-            }}
-          />
+        {showTime && (
+          <span className="flex items-center gap-1.5 whitespace-nowrap leading-none">
+            <span className={`hidden sm:inline text-xs font-semibold leading-none ${styles.iconColor}`}>{phaseLabel}</span>
+            <span className="font-mono text-sm leading-none tabular-nums text-foreground">{formattedTime}</span>
+          </span>
         )}
+
       </Button>
 
       {/* Glowing effect */}
