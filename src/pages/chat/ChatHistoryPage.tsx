@@ -503,7 +503,7 @@ export function ChatHistoryPage({ onNavigate }: ChatHistoryPageProps = {}) {
         messages.push({
           id: `${messageId}-flashcards-${artifactId || index}`,
           role: 'flashcard',
-          text: topic || title || 'Flashcards generated from this chat thread.',
+          text: topic || title || 'Flashcards generated from this chat.',
           time,
           flashcards,
           artifactId: Number.isFinite(artifactId) ? artifactId : undefined,
@@ -524,7 +524,7 @@ export function ChatHistoryPage({ onNavigate }: ChatHistoryPageProps = {}) {
         messages.push({
           id: `${messageId}-quiz-${artifactId || index}`,
           role: 'quiz',
-          text: topic || title || 'Quiz generated from this chat thread.',
+          text: topic || title || 'Quiz generated from this chat.',
           time,
           quizData,
           artifactId: Number.isFinite(artifactId) ? artifactId : undefined,
@@ -742,7 +742,7 @@ export function ChatHistoryPage({ onNavigate }: ChatHistoryPageProps = {}) {
         normalizedMessages.push({
           id: `${messageId}-flashcards-direct`,
           role: 'flashcard',
-          text: 'Generated flashcards from this chat thread.',
+          text: 'Generated flashcards from this chat.',
           time,
           flashcards: directFlashcards,
         });
@@ -752,7 +752,7 @@ export function ChatHistoryPage({ onNavigate }: ChatHistoryPageProps = {}) {
         normalizedMessages.push({
           id: `${messageId}-quiz-direct`,
           role: 'quiz',
-          text: 'Generated quiz from this chat thread.',
+          text: 'Generated quiz from this chat.',
           time,
           quizData: directQuizData,
         });
@@ -810,7 +810,7 @@ export function ChatHistoryPage({ onNavigate }: ChatHistoryPageProps = {}) {
       artifactMessages.push({
         id: `${threadId}-thread-flashcards`,
         role: 'flashcard',
-        text: 'Generated flashcards from this chat thread.',
+        text: 'Generated flashcards from this chat.',
         time,
         flashcards,
       });
@@ -820,7 +820,7 @@ export function ChatHistoryPage({ onNavigate }: ChatHistoryPageProps = {}) {
       artifactMessages.push({
         id: `${threadId}-thread-quiz`,
         role: 'quiz',
-        text: 'Generated quiz from this chat thread.',
+        text: 'Generated quiz from this chat.',
         time,
         quizData,
       });
@@ -997,7 +997,7 @@ export function ChatHistoryPage({ onNavigate }: ChatHistoryPageProps = {}) {
         deckId: message.artifactId,
         title: message.artifactTitle || message.artifactTopic || 'Chat Flashcards',
         topic: message.artifactTopic,
-        description: message.text || 'Flashcards generated from this chat thread.',
+        description: message.text || 'Flashcards generated from this chat.',
         cards: message.flashcards ?? [],
       }),
     );
@@ -1017,7 +1017,7 @@ export function ChatHistoryPage({ onNavigate }: ChatHistoryPageProps = {}) {
         quizId: message.artifactId,
         title: derivedTitle,
         topic: message.artifactTopic,
-        description: message.text || 'Quiz generated from this chat thread.',
+        description: message.text || 'Quiz generated from this chat.',
         category: 'Chat',
         tags: ['chat'],
         questions: message.quizData ?? [],

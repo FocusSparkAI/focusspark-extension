@@ -67,8 +67,8 @@ export function ChatbotWorkspace({ onNavigate }: ChatbotWorkspaceProps = {}) {
     setUploadProgress,
     currentFlashcardIndex,
     setCurrentFlashcardIndex,
-    showFlashcardBack,
-    setShowFlashcardBack,
+    revealedFlashcardIds,
+    setRevealedFlashcardIds,
     quizMode,
     setQuizMode,
     currentQuizIndex,
@@ -132,7 +132,7 @@ export function ChatbotWorkspace({ onNavigate }: ChatbotWorkspaceProps = {}) {
     setUploadedDocs([]);
     setUploadProgress(0);
     setCurrentFlashcardIndex(0);
-    setShowFlashcardBack(false);
+    setRevealedFlashcardIds(new Set());
     setQuizAnswers({});
     setQuizComplete(false);
     setCurrentQuizIndex(0);
@@ -418,7 +418,7 @@ export function ChatbotWorkspace({ onNavigate }: ChatbotWorkspaceProps = {}) {
     chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
 
-  // Emotional Feedback Popup - Show every 30 seconds when detection is disabled
+  // Emotional Feedback Popup - show at camera-off start, then periodically.
   useEffect(() => {
     if (isDetectionEnabled) {
       setShowEmotionalFeedback(false);
@@ -428,15 +428,22 @@ export function ChatbotWorkspace({ onNavigate }: ChatbotWorkspaceProps = {}) {
     if (!isDetectionEnabled) {
       const initialTimer = window.setTimeout(() => {
         setShowEmotionalFeedback(true);
-      }, 2500);
+      }, 2400);
 
-      const interval = setInterval(() => {
-        setShowEmotionalFeedback(true);
-      }, 120000);
+      let repeatTimer: number | undefined;
+      const scheduleNextFeedback = () => {
+        const delay = 5 * 60 * 1000 + Math.random() * 5 * 60 * 1000;
+        repeatTimer = window.setTimeout(() => {
+          setShowEmotionalFeedback(true);
+          scheduleNextFeedback();
+        }, delay);
+      };
+
+      scheduleNextFeedback();
 
       return () => {
         window.clearTimeout(initialTimer);
-        clearInterval(interval);
+        if (repeatTimer) window.clearTimeout(repeatTimer);
       };
     }
   }, [isDetectionEnabled]);
@@ -1053,11 +1060,13 @@ export function ChatbotWorkspace({ onNavigate }: ChatbotWorkspaceProps = {}) {
       const flashcardMessage: Message = {
         id: Date.now().toString(),
         type: 'flashcard',
-        content: 'Flashcards created from this chat thread.',
+        content: 'Flashcards created from this chat.',
         timestamp: new Date(),
         flashcards,
       };
 
+      setCurrentFlashcardIndex(0);
+      setRevealedFlashcardIds(new Set());
       setMessages((prev) => [...prev, flashcardMessage]);
       showBottomToast('success', 'Flashcards created from chat.', {
         id: 'chat-flashcards-created',
@@ -1104,7 +1113,7 @@ export function ChatbotWorkspace({ onNavigate }: ChatbotWorkspaceProps = {}) {
       const quizMessage: Message = {
         id: Date.now().toString(),
         type: 'quiz',
-        content: 'Quiz created from this chat thread.',
+        content: 'Quiz created from this chat.',
         timestamp: new Date(),
         quizData,
       };
@@ -1210,61 +1219,32 @@ export function ChatbotWorkspace({ onNavigate }: ChatbotWorkspaceProps = {}) {
     // Check if dark mode is active
     const isDark = document.documentElement.classList.contains('dark');
 
-    if (!isDetectionEnabled) {
-      // Dynamic emotional gradient when camera is disabled - Amazing color transitions
-      switch (emotionState) {
-        case 'happy':
-          // Vibrant energetic greens and teals for happiness
-          if (isDark) {
-            return 'linear-gradient(135deg, #123B35 0%, #164E63 35%, #14532D 70%, #134E4A 100%)';
-          }
-          return 'linear-gradient(135deg, #A7F3D0 0%, #6EE7B7 25%, #34D399 50%, #10B981 75%, #059669 100%)';
-        case 'sad':
-          // Moody reds and deep oranges for sadness
-          if (isDark) {
-            return 'linear-gradient(135deg, #4A1D2F 0%, #581C2A 35%, #3B2247 70%, #3A1F2B 100%)';
-          }
-          return 'linear-gradient(135deg, #FFF1F2 0%, #FECACA 35%, #FDA4AF 70%, #FB7185 100%)';
-        case 'tired':
-          // Soft warm tones for low-energy study mode
-          if (isDark) {
-            return 'linear-gradient(135deg, #3B2F1D 0%, #4A351D 40%, #343629 75%, #2F3540 100%)';
-          }
-          return 'linear-gradient(135deg, #FFE8A3 0%, #FDCB6E 35%, #F6B35B 70%, #E8A24A 100%)';
-        case 'neutral':
-        default:
-          // Balanced neutral tones while waiting for feedback
-          if (isDark) {
-            return 'linear-gradient(135deg, #1F2937 0%, #243744 45%, #27313F 100%)';
-          }
-          return 'linear-gradient(135deg, #EEF6FF 0%, #E4F7F1 45%, #FFF7D6 100%)';
-      }
-    }
-
-    switch (focusState) {
-      case 'focused':
-        // Cool tones for calm focus and deep flow
+    switch (emotionState) {
+      case 'happy':
+        // Focused/happy emotion uses the calm blue focus family.
         if (isDark) {
-          return 'linear-gradient(135deg, #1a2a4a 0%, #1a3d4a 50%, #1a4a47 100%)';
+          return 'linear-gradient(135deg, #1A2A4A 0%, #1A3D4A 50%, #1A4A47 100%)';
         }
         return 'linear-gradient(135deg, #DBEAFE 0%, #BAE6FD 45%, #99F6E4 100%)';
-      case 'attention':
-        // Warm vibrant tones to trigger alertness - ORANGE/YELLOW for ATTENTION NEEDED
+      case 'sad':
+        // Distracted/sad emotion uses a red/rose warning palette.
         if (isDark) {
-          return 'linear-gradient(135deg, #4a2a1a 0%, #4a3d1a 50%, #4a3a1a 100%)';
+          return 'linear-gradient(135deg, #4A1D2F 0%, #581C2A 45%, #3B2247 100%)';
         }
-        return 'linear-gradient(135deg, #FFF7ED 0%, #FED7AA 45%, #FDBA74 100%)';
-      case 'idle':
-        // Gentle neutral hues for balance - GRAY/MUTED for IDLE
+        return 'linear-gradient(135deg, #FFF1F2 0%, #FECACA 45%, #FDA4AF 100%)';
+      case 'tired':
+        // Tired emotion uses a softer amber palette.
         if (isDark) {
-          return 'linear-gradient(135deg, #2a2d3a 0%, #2d3a2d 50%, #3a3d2a 100%)';
+          return 'linear-gradient(135deg, #3B2F1D 0%, #4A351D 45%, #343629 100%)';
         }
-        return 'linear-gradient(135deg, #F8FAFC 0%, #E0F2FE 45%, #D1FAE5 100%)';
+        return 'linear-gradient(135deg, #FFFBEB 0%, #FDE68A 45%, #FCD34D 100%)';
+      case 'neutral':
       default:
+        // Neutral keeps the workspace quiet.
         if (isDark) {
-          return 'linear-gradient(135deg, #1a2a4a 0%, #1a3d4a 100%)';
+          return 'linear-gradient(135deg, #1F2937 0%, #243744 45%, #27313F 100%)';
         }
-        return 'linear-gradient(135deg, #A1C4FD 0%, #C2E9FB 100%)';
+        return 'linear-gradient(135deg, #EEF6FF 0%, #EAF4FF 45%, #F8FAFC 100%)';
     }
   };
 
@@ -1448,9 +1428,11 @@ export function ChatbotWorkspace({ onNavigate }: ChatbotWorkspaceProps = {}) {
           uploadProgress={uploadProgress}
           chatEndRef={chatEndRef}
           currentFlashcardIndex={currentFlashcardIndex}
-          showFlashcardBack={showFlashcardBack}
+          revealedFlashcardIds={revealedFlashcardIds}
           quizAnswers={quizAnswers}
-          onShowFlashcardBackChange={setShowFlashcardBack}
+          onRevealFlashcard={(cardId) => {
+            setRevealedFlashcardIds((current) => new Set(current).add(cardId));
+          }}
           onCurrentFlashcardIndexChange={setCurrentFlashcardIndex}
           onQuizAnswersChange={setQuizAnswers}
           onFlashcardKnown={handleFlashcardKnown}
@@ -1525,7 +1507,7 @@ export function ChatbotWorkspace({ onNavigate }: ChatbotWorkspaceProps = {}) {
               <div className="space-y-2 text-sm text-secondary">
                 <p>• Use <strong>Enable/Disable Camera</strong> buttons to control focus detection</p>
                 <p>• Watch the <strong>Dynamic Attention Bar</strong> for real-time focus feedback</p>
-                <p>• When camera is off, emotional feedback popups appear every 30 seconds</p>
+                <p>• When camera is off, emotional feedback appears at the start and every 5-10 minutes</p>
                 <p>• Upload documents (PDF, PPT, Ms Word) to analyze</p>
                 <p>• Chat with AI to ask questions or generate flashcards</p>
                 <p>• Use voice input for hands-free interaction</p>

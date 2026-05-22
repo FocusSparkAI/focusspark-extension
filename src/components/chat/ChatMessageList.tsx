@@ -22,9 +22,9 @@ interface ChatMessageListProps {
   uploadProgress: number;
   chatEndRef: RefObject<HTMLDivElement | null>;
   currentFlashcardIndex: number;
-  showFlashcardBack: boolean;
+  revealedFlashcardIds: Set<string>;
   quizAnswers: { [key: string]: number };
-  onShowFlashcardBackChange: (value: boolean) => void;
+  onRevealFlashcard: (cardId: string) => void;
   onCurrentFlashcardIndexChange: Dispatch<SetStateAction<number>>;
   onQuizAnswersChange: Dispatch<SetStateAction<{ [key: string]: number }>>;
   onFlashcardKnown: (cardId: string, known: boolean) => void;
@@ -36,9 +36,9 @@ export function ChatMessageList({
   uploadProgress,
   chatEndRef,
   currentFlashcardIndex,
-  showFlashcardBack,
+  revealedFlashcardIds,
   quizAnswers,
-  onShowFlashcardBackChange,
+  onRevealFlashcard,
   onCurrentFlashcardIndexChange,
   onQuizAnswersChange,
   onFlashcardKnown,
@@ -94,8 +94,23 @@ export function ChatMessageList({
 
               {message.type === 'flashcard' && message.flashcards && (
                 <div className="w-full space-y-4">
-                  <div className="rounded-2xl px-6 py-4 bg-white/95 dark:bg-[#1C1F2A]/95 backdrop-blur-md shadow-lg">
-                    <p className="mb-4 text-foreground">{message.content}</p>
+                  {(() => {
+                    const currentCard = message.flashcards[currentFlashcardIndex];
+                    if (!currentCard) return null;
+
+                    const isCurrentCardRevealed = revealedFlashcardIds.has(currentCard.id);
+
+                    return (
+                  <div className="chat-study-shell chat-study-shell-flashcard">
+                    <div className="chat-study-header">
+                      <div>
+                        <p className="chat-study-eyebrow">Flashcards</p>
+                        <p className="chat-study-message">{message.content}</p>
+                      </div>
+                      <Badge variant="secondary" className="chat-study-count">
+                        {currentFlashcardIndex + 1} / {message.flashcards.length}
+                      </Badge>
+                    </div>
 
                     <div className="relative">
                       <AnimatePresence mode="wait">
@@ -105,26 +120,30 @@ export function ChatMessageList({
                           animate={{ opacity: 1, rotateY: 0 }}
                           exit={{ opacity: 0, rotateY: -90 }}
                           transition={{ duration: 0.5 }}
-                          className="min-h-[300px]"
+                          className="chat-flashcard-stage"
                         >
                           <Card
-                            className="cursor-pointer hover:shadow-2xl transition-shadow border-2 border-blue-500/30 bg-gradient-to-br from-blue-500/10 to-purple-600/10"
-                            onClick={() => onShowFlashcardBackChange(!showFlashcardBack)}
+                            className={`chat-flashcard-card ${isCurrentCardRevealed ? 'chat-flashcard-card-back' : ''}`}
+                            onClick={() => {
+                              if (!isCurrentCardRevealed) {
+                                onRevealFlashcard(currentCard.id);
+                              }
+                            }}
                           >
-                            <CardHeader>
-                              <div className="flex items-start justify-between">
-                                <div>
-                                  <CardTitle className="gradient-text mb-2">
-                                    {message.flashcards[currentFlashcardIndex].title}
+                            <CardHeader className="chat-flashcard-card-header">
+                              <div className="chat-flashcard-title-row">
+                                <div className="min-w-0">
+                                  <CardTitle className="chat-flashcard-title">
+                                    {currentCard.title}
                                   </CardTitle>
-                                  <div className="flex flex-wrap gap-2">
-                                    {message.flashcards[currentFlashcardIndex].topic && (
-                                      <Badge variant="secondary" className="text-xs">
-                                        {message.flashcards[currentFlashcardIndex].topic}
+                                  <div className="chat-flashcard-tags">
+                                    {currentCard.topic && (
+                                      <Badge variant="secondary" className="chat-study-pill">
+                                        {currentCard.topic}
                                       </Badge>
                                     )}
-                                    {message.flashcards[currentFlashcardIndex].tags.map((tag) => (
-                                      <Badge key={tag} variant="secondary" className="text-xs">
+                                    {currentCard.tags.map((tag) => (
+                                      <Badge key={tag} variant="secondary" className="chat-study-pill">
                                         {tag}
                                       </Badge>
                                     ))}
@@ -132,43 +151,44 @@ export function ChatMessageList({
                                 </div>
                               </div>
                             </CardHeader>
-                            <CardContent className="space-y-4">
-                              {!showFlashcardBack ? (
-                                <div>
-                                  <p className="text-lg mb-4 text-foreground">
-                                    {message.flashcards[currentFlashcardIndex].front}
+                            <CardContent className="chat-flashcard-content">
+                              {!isCurrentCardRevealed ? (
+                                <div className="chat-flashcard-face">
+                                  <p className="chat-flashcard-question">
+                                    {currentCard.front}
                                   </p>
-                                  <p className="text-sm text-muted-foreground text-center">
+                                  <p className="chat-flashcard-hint">
                                     Click to reveal answer
                                   </p>
                                 </div>
                               ) : (
-                                <div className="space-y-4">
-                                  <div className="p-4 rounded-xl bg-card border border-border">
-                                    <p className="text-lg text-foreground">
-                                      {message.flashcards[currentFlashcardIndex].back}
+                                <div className="chat-flashcard-answer-stack">
+                                  <div className="chat-study-answer-card">
+                                    <p className="chat-study-section-label">Answer</p>
+                                    <p className="chat-study-answer-text">
+                                      {currentCard.back}
                                     </p>
                                   </div>
 
-                                  {message.flashcards[currentFlashcardIndex].example && (
-                                    <div className="p-4 rounded-xl bg-blue-500/10 border border-blue-500/20">
-                                      <p className="text-sm text-muted-foreground mb-1">Example:</p>
-                                      <p className="text-foreground">{message.flashcards[currentFlashcardIndex].example}</p>
+                                  {currentCard.example && (
+                                    <div className="chat-study-note chat-study-note-blue">
+                                      <p className="chat-study-section-label">Example</p>
+                                      <p>{currentCard.example}</p>
                                     </div>
                                   )}
 
-                                  {message.flashcards[currentFlashcardIndex].memoryTip && (
-                                    <div className="p-4 rounded-xl bg-purple-500/10 border border-purple-500/20">
-                                      <p className="text-sm text-muted-foreground mb-1">Memory Tip:</p>
-                                      <p className="text-foreground">{message.flashcards[currentFlashcardIndex].memoryTip}</p>
+                                  {currentCard.memoryTip && (
+                                    <div className="chat-study-note chat-study-note-amber">
+                                      <p className="chat-study-section-label">Memory Tip</p>
+                                      <p>{currentCard.memoryTip}</p>
                                     </div>
                                   )}
 
-                                  {message.flashcards[currentFlashcardIndex].examShortcut && (
-                                    <div className="p-4 rounded-xl bg-teal-500/10 border border-teal-500/20">
-                                      <p className="text-sm text-muted-foreground mb-1">Exam Shortcut:</p>
-                                      <p className="font-mono text-foreground">
-                                        {message.flashcards[currentFlashcardIndex].examShortcut}
+                                  {currentCard.examShortcut && (
+                                    <div className="chat-study-note chat-study-note-teal">
+                                      <p className="chat-study-section-label">Exam Shortcut</p>
+                                      <p className="font-mono">
+                                        {currentCard.examShortcut}
                                       </p>
                                     </div>
                                   )}
@@ -180,17 +200,16 @@ export function ChatMessageList({
                         </motion.div>
                       </AnimatePresence>
 
-                      <div className="flex items-center justify-center gap-4 mt-4">
+                      <div className="chat-study-primary-action">
                         <Button
                           size="lg"
                           className="flashcard-know-btn"
-                          disabled={showFlashcardBack}
+                          disabled={isCurrentCardRevealed}
                           onClick={() => {
-                            onFlashcardKnown(message.flashcards![currentFlashcardIndex].id, true);
+                            onFlashcardKnown(currentCard.id, true);
                             if (currentFlashcardIndex < message.flashcards!.length - 1) {
                               onCurrentFlashcardIndexChange((prev) => prev + 1);
                             }
-                            onShowFlashcardBackChange(false);
                           }}
                         >
                           <Check className="w-5 h-5" />
@@ -198,32 +217,32 @@ export function ChatMessageList({
                         </Button>
                       </div>
 
-                      <div className="flex items-center justify-between mt-4">
+                      <div className="chat-study-nav">
                         <Button
                           variant="outline"
                           size="icon"
+                          className="chat-study-nav-button"
                           disabled={currentFlashcardIndex === 0}
                           onClick={() => {
                             onCurrentFlashcardIndexChange((prev) => prev - 1);
-                            onShowFlashcardBackChange(false);
                           }}
                         >
                           <ChevronLeft className="w-5 h-5" />
                         </Button>
 
-                        <span className="text-sm text-muted-foreground">
+                        <span className="chat-study-position">
                           {currentFlashcardIndex + 1} / {message.flashcards.length}
                         </span>
 
                         <Button
                           variant="outline"
                           size="icon"
+                          className="chat-study-nav-button"
                           disabled={
-                            currentFlashcardIndex === message.flashcards.length - 1 || !showFlashcardBack
+                            currentFlashcardIndex === message.flashcards.length - 1 || !isCurrentCardRevealed
                           }
                           onClick={() => {
                             onCurrentFlashcardIndexChange((prev) => prev + 1);
-                            onShowFlashcardBackChange(false);
                           }}
                         >
                           <ChevronRight className="w-5 h-5" />
@@ -231,34 +250,43 @@ export function ChatMessageList({
                       </div>
                     </div>
                   </div>
+                    );
+                  })()}
                 </div>
               )}
 
               {message.type === 'quiz' && message.quizData && (
-                <div className="w-full rounded-2xl px-6 py-4 bg-white/95 dark:bg-[#1C1F2A]/95 backdrop-blur-md shadow-lg">
-                  <p className="mb-6 text-foreground">{message.content}</p>
+                <div className="chat-study-shell chat-study-shell-quiz">
+                  <div className="chat-study-header">
+                    <div>
+                      <p className="chat-study-eyebrow">Quiz</p>
+                      <p className="chat-study-message">{message.content}</p>
+                    </div>
+                    <Badge variant="secondary" className="chat-study-count">
+                      {Object.keys(quizAnswers).length} / {message.quizData.length}
+                    </Badge>
+                  </div>
 
-                  <div className="space-y-6">
+                  <div className="chat-quiz-stack">
                     {message.quizData.map((question, qIndex) => (
                       <motion.div
                         key={question.id}
                         initial={{ opacity: 0, x: -20 }}
                         animate={{ opacity: 1, x: 0 }}
                         transition={{ delay: qIndex * 0.1 }}
-                        className="p-6 rounded-xl bg-card border border-border"
+                        className="chat-quiz-question-card"
                       >
-                        <p className="mb-4 text-foreground">
-                          <span className="text-blue-400 mr-2">Q{qIndex + 1}.</span>
-                          {question.question}
-                        </p>
+                        <div className="chat-quiz-question-header">
+                          <span className="chat-quiz-question-number">Q{qIndex + 1}</span>
+                          <p className="chat-quiz-question-text">{question.question}</p>
+                        </div>
 
-                        <div className="space-y-2">
+                        <div className="chat-quiz-options">
                           {question.options.map((option, oIndex) => (
                             <Button
                               key={oIndex}
                               variant="outline"
-                              className={`w-full justify-start text-left ${quizAnswers[question.id] === oIndex ? 'border-blue-500 bg-blue-500/10' : ''
-                                }`}
+                              className={`chat-quiz-option ${quizAnswers[question.id] === oIndex ? 'chat-quiz-option-selected' : ''}`}
                               onClick={() => {
                                 onQuizAnswersChange((prev) => ({
                                   ...prev,
@@ -266,10 +294,10 @@ export function ChatMessageList({
                                 }));
                               }}
                             >
-                              <span className="mr-3 text-muted-foreground">{String.fromCharCode(65 + oIndex)}.</span>
-                              {option}
+                              <span className="chat-quiz-option-letter">{String.fromCharCode(65 + oIndex)}</span>
+                              <span className="chat-quiz-option-text">{option}</span>
                               {quizAnswers[question.id] === oIndex && (
-                                <Check className="w-4 h-4 ml-auto text-blue-400" />
+                                <Check className="chat-quiz-option-check" />
                               )}
                             </Button>
                           ))}
@@ -282,10 +310,10 @@ export function ChatMessageList({
                       <motion.div
                         initial={{ opacity: 0, y: 20 }}
                         animate={{ opacity: 1, y: 0 }}
-                        className="text-center p-6 rounded-xl bg-gradient-to-r from-green-500/20 to-teal-500/20 border border-green-500/30"
+                        className="chat-quiz-complete"
                       >
-                        <p className="text-2xl mb-2 text-foreground">Quiz Complete!</p>
-                        <p className="text-muted-foreground">
+                        <p className="chat-quiz-complete-title">Quiz Complete!</p>
+                        <p className="chat-quiz-complete-score">
                           Score: {Object.values(quizAnswers).filter((answer, idx) => answer === message.quizData![idx].correctAnswer).length} / {message.quizData.length}
                         </p>
                       </motion.div>

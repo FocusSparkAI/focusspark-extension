@@ -6,6 +6,9 @@ import {
   CameraOff,
   Check,
   Eye,
+  Frown,
+  Meh,
+  Smile,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '../../components/ui/button';
@@ -25,6 +28,8 @@ type DetectionState =
   | 'eyes_closed'
   | 'looking_away'
   | 'no_face';
+
+type EmotionState = 'happy' | 'tired' | 'neutral' | 'sad';
 
 const detectionContent: Record<
   DetectionState,
@@ -87,6 +92,57 @@ const detectionContent: Record<
   },
 };
 
+const trackingOffContent = {
+  label: 'Tracking is off',
+  description: 'Turn on focus and emotion tracking to send frames to the backend.',
+  panelClassName: 'border-slate-500/25 bg-slate-500/10',
+  textClassName: 'text-slate-500 dark:text-slate-300',
+  Icon: CameraOff,
+};
+
+const emotionContent: Record<
+  EmotionState,
+  {
+    label: string;
+    panelClassName: string;
+    textClassName: string;
+    Icon: typeof Smile;
+  }
+> = {
+  happy: {
+    label: 'Happy',
+    panelClassName: 'border-blue-500/30 bg-blue-500/10',
+    textClassName: 'text-blue-500',
+    Icon: Smile,
+  },
+  tired: {
+    label: 'Tired',
+    panelClassName: 'border-amber-500/30 bg-amber-500/10',
+    textClassName: 'text-amber-500',
+    Icon: Meh,
+  },
+  neutral: {
+    label: 'Neutral',
+    panelClassName: 'border-slate-500/25 bg-slate-500/10',
+    textClassName: 'text-slate-500 dark:text-slate-300',
+    Icon: Meh,
+  },
+  sad: {
+    label: 'Sad',
+    panelClassName: 'border-rose-500/30 bg-rose-500/10',
+    textClassName: 'text-rose-500',
+    Icon: Frown,
+  },
+};
+
+const trackingOffEmotionContent = {
+  label: 'Tracking is off',
+  description: 'Emotion updates when focus and emotion tracking is on.',
+  panelClassName: 'border-slate-500/25 bg-slate-500/10',
+  textClassName: 'text-slate-500 dark:text-slate-300',
+  Icon: CameraOff,
+};
+
 const normalizeDetectionState = (value: unknown): DetectionState | null => {
   if (typeof value !== 'string') return null;
 
@@ -97,6 +153,19 @@ const normalizeDetectionState = (value: unknown): DetectionState | null => {
   if (normalized.includes('no_face') || normalized.includes('face_not')) return 'no_face';
   if (normalized.includes('distract') || normalized.includes('unfocus')) return 'distracted';
   if (normalized.includes('focus')) return 'focused';
+
+  return null;
+};
+
+const normalizeEmotion = (value: unknown): EmotionState | null => {
+  if (typeof value !== 'string') return null;
+
+  const normalized = value.toLowerCase().trim();
+
+  if (normalized.includes('happy') || normalized.includes('focus') || normalized.includes('engaged')) return 'happy';
+  if (normalized.includes('tired') || normalized.includes('sleep') || normalized.includes('fatigue')) return 'tired';
+  if (normalized.includes('sad') || normalized.includes('distract') || normalized.includes('stress')) return 'sad';
+  if (normalized.includes('neutral') || normalized.includes('calm')) return 'neutral';
 
   return null;
 };
@@ -112,6 +181,7 @@ export function FocusToolsPage({ onNavigate }: FocusToolsPageProps) {
   const [stream, setStream] = useState<MediaStream | null>(null);
   const [isTracking, setIsTracking] = useState(false);
   const [detectionState, setDetectionState] = useState<DetectionState>('idle');
+  const [emotionState, setEmotionState] = useState<EmotionState>('neutral');
   const [focusScore, setFocusScore] = useState<number | null>(null);
   const [transportMode, setTransportMode] = useState<'idle' | 'connecting' | 'ws' | 'http'>('idle');
   const websocketUrl = buildBackendUrl(BACKEND_ROUTES.ws).replace(/^http/i, 'ws');
@@ -136,19 +206,27 @@ export function FocusToolsPage({ onNavigate }: FocusToolsPageProps) {
   };
 
   const applyDetectionResult = (data: Record<string, unknown>) => {
-    const backendState =
-      normalizeDetectionState(data.status) ||
-      normalizeDetectionState(data.state) ||
-      normalizeDetectionState(data.result) ||
-      normalizeDetectionState(data.label) ||
-      normalizeDetectionState(data.reason);
+    const backendEmotion =
+      normalizeEmotion(data.emotion) ||
+      normalizeEmotion(data.emotional_state) ||
+      normalizeEmotion(data.emotionalState) ||
+      normalizeEmotion(data.mood);
 
-    if (backendState) {
-      setDetectionState(backendState);
-    } else if (typeof data.focused === 'boolean') {
+    if (backendEmotion) {
+      setEmotionState(backendEmotion);
+    }
+
+    if (typeof data.focused === 'boolean') {
       setDetectionState(data.focused ? 'focused' : 'distracted');
     } else {
-      setDetectionState('waiting');
+      const backendState =
+        normalizeDetectionState(data.status) ||
+        normalizeDetectionState(data.state) ||
+        normalizeDetectionState(data.result) ||
+        normalizeDetectionState(data.label) ||
+        normalizeDetectionState(data.reason);
+
+      setDetectionState(backendState ?? 'waiting');
     }
 
     const backendScore = data.focus_score ?? data.focusScore ?? data.score ?? data.confidence;
@@ -237,11 +315,13 @@ export function FocusToolsPage({ onNavigate }: FocusToolsPageProps) {
       }
       setTransportMode('idle');
       setDetectionState('idle');
+      setEmotionState('neutral');
       return;
     }
 
     setTransportMode('connecting');
     setDetectionState('waiting');
+    setEmotionState('neutral');
     socketShouldStayActiveRef.current = true;
     const ws = new WebSocket(websocketUrl);
     wsRef.current = ws;
@@ -313,8 +393,7 @@ export function FocusToolsPage({ onNavigate }: FocusToolsPageProps) {
         });
         setStream(mediaStream);
         setIsWebcamEnabled(true);
-        setIsTracking(true);
-        setDetectionState('waiting');
+        setDetectionState(isTracking ? 'waiting' : 'idle');
         toast.success('Webcam enabled');
       } catch {
         toast.error('Could not access webcam. Please check permissions.');
@@ -334,8 +413,8 @@ export function FocusToolsPage({ onNavigate }: FocusToolsPageProps) {
     }
     setStream(null);
     setIsWebcamEnabled(false);
-    setIsTracking(false);
     setDetectionState('idle');
+    setEmotionState('neutral');
     setFocusScore(null);
     setTransportMode('idle');
     toast('Webcam disabled');
@@ -446,31 +525,58 @@ export function FocusToolsPage({ onNavigate }: FocusToolsPageProps) {
                       </div>
                       <div className="rounded-lg border border-border bg-card px-3 py-2">
                         <p className="text-xs text-secondary">Tracking</p>
-                        <p className="mt-1 font-medium">{isTracking ? 'Running' : 'Paused'}</p>
+                        <p className="mt-1 font-medium">
+                          {isTracking
+                            ? isWebcamEnabled
+                              ? 'Running'
+                              : 'On when camera returns'
+                            : 'Off'}
+                        </p>
                       </div>
                     </div>
                   </div>
 
                   <div className="flex min-h-[360px] flex-col gap-3 rounded-lg border border-border bg-background p-4">
                     {(() => {
-                      const status = detectionContent[detectionState];
+                      const status = isTracking ? detectionContent[detectionState] : trackingOffContent;
                       const StatusIcon = status.Icon;
+                      const emotion = isTracking ? emotionContent[emotionState] : trackingOffEmotionContent;
+                      const EmotionIcon = emotion.Icon;
 
                       return (
-                        <div className={`rounded-lg border p-4 ${status.panelClassName}`}>
-                          <div className="flex w-full items-start justify-between gap-4">
-                            <div>
-                              <p className="text-xs font-medium uppercase tracking-normal text-secondary">
-                                Backend result
-                              </p>
-                              <p className={`mt-1 text-xl font-semibold ${status.textClassName}`}>
-                                {status.label}
-                              </p>
-                              <p className="mt-1 text-sm leading-5 text-secondary">
-                                {status.description}
-                              </p>
+                        <div className="grid gap-3 md:grid-cols-2">
+                          <div className={`rounded-lg border p-4 ${status.panelClassName}`}>
+                            <div className="flex w-full items-start justify-between gap-4">
+                              <div>
+                                <p className="text-xs font-medium uppercase tracking-normal text-secondary">
+                                  Focus result
+                                </p>
+                                <p className={`mt-1 text-xl font-semibold ${status.textClassName}`}>
+                                  {status.label}
+                                </p>
+                                <p className="mt-1 text-sm leading-5 text-secondary">
+                                  {status.description}
+                                </p>
+                              </div>
+                              <StatusIcon className={`h-6 w-6 shrink-0 ${status.textClassName}`} />
                             </div>
-                            <StatusIcon className={`h-6 w-6 shrink-0 ${status.textClassName}`} />
+                          </div>
+
+                          <div className={`rounded-lg border p-4 ${emotion.panelClassName}`}>
+                            <div className="flex w-full items-start justify-between gap-4">
+                              <div>
+                                <p className="text-xs font-medium uppercase tracking-normal text-secondary">
+                                  Backend emotion
+                                </p>
+                                <p className={`mt-1 text-xl font-semibold ${emotion.textClassName}`}>
+                                  {emotion.label}
+                                </p>
+                                <p className="mt-1 text-sm leading-5 text-secondary">
+                                  {emotion.description}
+                                </p>
+                              </div>
+                              <EmotionIcon className={`h-6 w-6 shrink-0 ${emotion.textClassName}`} />
+                            </div>
                           </div>
                         </div>
                       );
@@ -495,7 +601,7 @@ export function FocusToolsPage({ onNavigate }: FocusToolsPageProps) {
 
                     <div className="mt-auto flex items-center justify-between gap-4 rounded-lg border border-border bg-card p-3">
                       <div>
-                        <p className="font-medium">Focus tracking</p>
+                        <p className="font-medium">Focus and emotion tracking</p>
                         <p className="mt-1 text-sm text-secondary">
                           Send camera frames to the backend while the camera is enabled.
                         </p>
@@ -582,7 +688,7 @@ export function FocusToolsPage({ onNavigate }: FocusToolsPageProps) {
                   <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-purple-500/10 text-xs font-medium text-purple-500">
                     2
                   </span>
-                  <p>Results update the status panel as focused, distracted, eyes closed, or looking away.</p>
+                  <p>Results update the status panel with both focus state and backend emotion.</p>
                 </div>
                 <div className="flex gap-3 rounded-lg bg-background/70 px-3 py-2">
                   <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-purple-500/10 text-xs font-medium text-purple-500">

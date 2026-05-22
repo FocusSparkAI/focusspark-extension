@@ -1045,11 +1045,6 @@ export function QuizScreen({ onNavigate }: QuizScreenProps) {
               <div>
                 <div className="flex items-center gap-3">
                   <h1 className="quiz-title">{selectedQuiz ? selectedQuiz.title : 'Available Quizzes'}</h1>
-                  {selectedQuiz && (
-                    <Badge variant="secondary" className="text-sm">
-                      {capitalizeFirstLetter(selectedQuiz.category || 'General')}
-                    </Badge>
-                  )}
                 </div>
                 {selectedQuiz ? (
                   <p className="quiz-subtitle">{selectedQuiz.description}</p>
@@ -1351,7 +1346,6 @@ export function QuizScreen({ onNavigate }: QuizScreenProps) {
                 <CardHeader>
                   <div className="quiz-question-header">
                     <CardTitle className="quiz-question-title">{currentQuestion?.question}</CardTitle>
-                    <Badge variant="secondary">{currentQuestion?.topic}</Badge>
                   </div>
                 </CardHeader>
 

@@ -34,7 +34,7 @@ export function EmotionalFeedbackPopup({
         >
           <div className="relative rounded-2xl p-6 border border-border/50 bg-card/95 backdrop-blur-xl shadow-2xl">
             {/* Glowing gradient border */}
-            <div className="absolute inset-0 rounded-2xl border-glow-pulse pointer-events-none" />
+            <div className="absolute inset-0 rounded-2xl emotional-popup-blue-glow pointer-events-none" />
 
             {/* Close button */}
             <Button
@@ -62,7 +62,7 @@ export function EmotionalFeedbackPopup({
               </motion.div>
 
               {/* Emotion Buttons */}
-              <div className="flex gap-3 justify-center">
+              <div className="grid grid-cols-3 gap-3">
                 {/* Focused */}
                 <motion.div
                   initial={{ opacity: 0, scale: 0.8 }}
@@ -73,9 +73,9 @@ export function EmotionalFeedbackPopup({
                     variant="outline"
                     size="lg"
                     onClick={() => handleFeedback('focused')}
-                    className="flex-col h-auto py-4 px-6 hover:bg-green-500/10 hover:border-green-500/40 transition-all group"
+                    className="flex-col h-28 w-full px-3 py-4 hover:bg-blue-500/10 hover:border-blue-500/40 transition-all group"
                   >
-                    <Smile className="w-8 h-8 mb-2 text-green-400 group-hover:scale-110 transition-transform" />
+                    <Smile className="w-8 h-8 mb-2 text-blue-400 group-hover:scale-110 transition-transform" />
                     <span className="text-xs">Focused</span>
                   </Button>
                 </motion.div>
@@ -90,7 +90,7 @@ export function EmotionalFeedbackPopup({
                     variant="outline"
                     size="lg"
                     onClick={() => handleFeedback('tired')}
-                    className="flex-col h-auto py-4 px-6 hover:bg-amber-500/10 hover:border-amber-500/40 transition-all group"
+                    className="flex-col h-28 w-full px-3 py-4 hover:bg-amber-500/10 hover:border-amber-500/40 transition-all group"
                   >
                     <Meh className="w-8 h-8 mb-2 text-amber-400 group-hover:scale-110 transition-transform" />
                     <span className="text-xs">Tired</span>
@@ -107,7 +107,7 @@ export function EmotionalFeedbackPopup({
                     variant="outline"
                     size="lg"
                     onClick={() => handleFeedback('distracted')}
-                    className="flex-col h-auto py-4 px-6 hover:bg-red-500/10 hover:border-red-500/40 transition-all group"
+                    className="flex-col h-28 w-full px-3 py-4 hover:bg-red-500/10 hover:border-red-500/40 transition-all group"
                   >
                     <Frown className="w-8 h-8 mb-2 text-red-400 group-hover:scale-110 transition-transform" />
                     <span className="text-xs">Distracted</span>

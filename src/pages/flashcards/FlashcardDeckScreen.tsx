@@ -83,7 +83,7 @@ export function FlashcardDeckScreen({ onNavigate }: FlashcardDeckScreenProps) {
   const [newCardCount, setNewCardCount] = useState('10');
   const [isCreatingDeck, setIsCreatingDeck] = useState(false);
   const [currentCardIndex, setCurrentCardIndex] = useState(0);
-  const [isFlipped, setIsFlipped] = useState(false);
+  const [revealedCardIds, setRevealedCardIds] = useState<Set<string>>(() => new Set());
   const [studyControlsLocked, setStudyControlsLocked] = useState(false);
   const [streak, setStreak] = useState(0);
   const [showConfetti, setShowConfetti] = useState(false);
@@ -275,7 +275,7 @@ export function FlashcardDeckScreen({ onNavigate }: FlashcardDeckScreenProps) {
         totalCards: cards.length,
       });
       setCurrentCardIndex(0);
-      setIsFlipped(false);
+      setRevealedCardIds(new Set());
       setStudyControlsLocked(false);
       setAnsweredCardIds(new Set());
       setAttemptResults({});
@@ -323,7 +323,7 @@ export function FlashcardDeckScreen({ onNavigate }: FlashcardDeckScreenProps) {
       if (createdDeck.id && createdDeck.id !== 'undefined') {
         setSelectedDeck({ ...createdDeck, title: createdTitle, cards: createdCards, totalCards: createdCards.length });
         setCurrentCardIndex(0);
-        setIsFlipped(false);
+        setRevealedCardIds(new Set());
         setStudyControlsLocked(false);
         setAnsweredCardIds(new Set());
         setAttemptResults({});
@@ -430,7 +430,7 @@ export function FlashcardDeckScreen({ onNavigate }: FlashcardDeckScreenProps) {
         sourceType: 'Chat',
       });
       setCurrentCardIndex(0);
-      setIsFlipped(false);
+      setRevealedCardIds(new Set());
       setStudyControlsLocked(false);
       setStreak(0);
       setAnsweredCardIds(new Set());
@@ -459,7 +459,8 @@ export function FlashcardDeckScreen({ onNavigate }: FlashcardDeckScreenProps) {
 
   const currentCard = selectedDeck?.cards[currentCardIndex];
   const hasAnsweredCurrentCard = currentCard ? answeredCardIds.has(currentCard.id) : false;
-  const canAnswerCurrentCard = !isFlipped && !hasAnsweredCurrentCard && !isSavingReview;
+  const isCurrentCardRevealed = currentCard ? revealedCardIds.has(currentCard.id) : false;
+  const canAnswerCurrentCard = !isCurrentCardRevealed && !hasAnsweredCurrentCard && !isSavingReview;
 
   const handleCardReview = async (known: boolean) => {
     if (!selectedDeck || !currentCard || !canAnswerCurrentCard) return;
@@ -552,7 +553,6 @@ export function FlashcardDeckScreen({ onNavigate }: FlashcardDeckScreenProps) {
 
     // Move to next card
     setTimeout(() => {
-      setIsFlipped(false);
       if (currentCardIndex < reviewedDeck.cards.length - 1) {
         setCurrentCardIndex(currentCardIndex + 1);
       } else {
@@ -567,7 +567,7 @@ export function FlashcardDeckScreen({ onNavigate }: FlashcardDeckScreenProps) {
     const shuffled = [...selectedDeck.cards].sort(() => Math.random() - 0.5);
     setSelectedDeck({ ...selectedDeck, cards: shuffled });
     setCurrentCardIndex(0);
-    setIsFlipped(false);
+    setRevealedCardIds(new Set());
     setAnsweredCardIds(new Set());
     setAttemptResults({});
     toast('Deck shuffled!');
@@ -637,7 +637,7 @@ export function FlashcardDeckScreen({ onNavigate }: FlashcardDeckScreenProps) {
                 onClick={() => {
                   setSelectedDeck(null);
                   setCurrentCardIndex(0);
-                  setIsFlipped(false);
+                  setRevealedCardIds(new Set());
                   setStreak(0);
                   setAnsweredCardIds(new Set());
                   setAttemptResults({});
@@ -870,9 +870,9 @@ export function FlashcardDeckScreen({ onNavigate }: FlashcardDeckScreenProps) {
               <div className="flashcard-repetition-label">
                 {hasAnsweredCurrentCard
                   ? 'Answered'
-                  : isFlipped
+                  : isCurrentCardRevealed
                     ? 'Answer revealed'
-                    : 'Choose how you did'}
+                    : 'Mark known or reveal'}
               </div>
             </div>
 
@@ -917,12 +917,12 @@ export function FlashcardDeckScreen({ onNavigate }: FlashcardDeckScreenProps) {
                 <motion.div
                   className="relative h-96 cursor-pointer"
                   onClick={() => {
-                    if (!isFlipped) {
+                    if (currentCard && !isCurrentCardRevealed) {
                       setStudyControlsLocked(true);
+                      setRevealedCardIds((current) => new Set(current).add(currentCard.id));
                     }
-                    setIsFlipped(!isFlipped);
                   }}
-                  animate={{ rotateY: isFlipped ? 180 : 0 }}
+                  animate={{ rotateY: isCurrentCardRevealed ? 180 : 0 }}
                   transition={{ duration: 0.6, ease: 'easeInOut' }}
                   style={{ transformStyle: 'preserve-3d' }}
                 >
@@ -1011,14 +1011,6 @@ export function FlashcardDeckScreen({ onNavigate }: FlashcardDeckScreenProps) {
                       {selectedDeck.sourceType}
                     </Badge>
                   </div>
-                  {selectedDeck.topic && (
-                    <div>
-                      <p className="flashcard-metadata-label">Topic</p>
-                      <Badge variant="outline" className="flashcard-source-badge flashcard-source-badge-topic">
-                        {selectedDeck.topic}
-                      </Badge>
-                    </div>
-                  )}
                   <div>
                     <p className="flashcard-metadata-label">Times Correct</p>
                     <p className="flashcard-metadata-value">{currentCard.correctCount}</p>
@@ -1044,7 +1036,6 @@ export function FlashcardDeckScreen({ onNavigate }: FlashcardDeckScreenProps) {
                 onClick={() => {
                   if (currentCardIndex > 0) {
                     setCurrentCardIndex(currentCardIndex - 1);
-                    setIsFlipped(false);
                   }
                 }}
                 disabled={currentCardIndex === 0}
@@ -1058,11 +1049,10 @@ export function FlashcardDeckScreen({ onNavigate }: FlashcardDeckScreenProps) {
                 onClick={() => {
                   if (currentCardIndex < selectedDeck.cards.length - 1) {
                     setCurrentCardIndex(currentCardIndex + 1);
-                    setIsFlipped(false);
                   }
                 }}
                 disabled={
-                  currentCardIndex === selectedDeck.cards.length - 1 || (!isFlipped && !hasAnsweredCurrentCard)
+                  currentCardIndex === selectedDeck.cards.length - 1 || !isCurrentCardRevealed
                 }
               >
                 Next

@@ -37,10 +37,10 @@ export function DynamicAttentionBar({ className = '' }: DynamicAttentionBarProps
           type: 'happy',
           label: 'Focused',
           icon: Smile,
-          color: '#059669',
-          darkColor: '#6EE7B7',
-          borderColor: 'border-emerald-500/45 dark:border-emerald-300/45',
-          glowColor: 'rgba(16, 185, 129, 0.45)',
+          color: '#2563EB',
+          darkColor: '#93C5FD',
+          borderColor: 'border-blue-500/45 dark:border-blue-300/40',
+          glowColor: 'rgba(37, 99, 235, 0.38)',
         };
       } else if (emotionalState === 'tired') {
         newState = {
@@ -99,12 +99,12 @@ export function DynamicAttentionBar({ className = '' }: DynamicAttentionBarProps
       } else {
         newState = {
           type: 'attention',
-          label: 'Attention Needed',
+          label: 'Distracted',
           icon: AlertCircle,
-          color: '#D97706',
-          darkColor: '#FCD34D',
-          borderColor: 'border-amber-500/40',
-          glowColor: 'rgba(245, 158, 11, 0.4)',
+          color: '#E11D48',
+          darkColor: '#FDA4AF',
+          borderColor: 'border-rose-500/45 dark:border-rose-300/45',
+          glowColor: 'rgba(244, 63, 94, 0.42)',
         };
       }
     }
@@ -166,9 +166,9 @@ export function DynamicAttentionBar({ className = '' }: DynamicAttentionBarProps
             background: 
               state.type === 'happy'
                 ? [
-                    'linear-gradient(90deg, rgba(16, 185, 129, 0.2) 0%, rgba(20, 184, 166, 0.2) 100%)',
-                    'linear-gradient(90deg, rgba(20, 184, 166, 0.2) 0%, rgba(52, 211, 153, 0.2) 100%)',
-                    'linear-gradient(90deg, rgba(16, 185, 129, 0.2) 0%, rgba(20, 184, 166, 0.2) 100%)',
+                    'linear-gradient(90deg, rgba(59, 130, 246, 0.2) 0%, rgba(14, 165, 233, 0.18) 100%)',
+                    'linear-gradient(90deg, rgba(14, 165, 233, 0.18) 0%, rgba(45, 212, 191, 0.14) 100%)',
+                    'linear-gradient(90deg, rgba(59, 130, 246, 0.2) 0%, rgba(14, 165, 233, 0.18) 100%)',
                   ]
                 : state.type === 'tired'
                 ? [
@@ -297,7 +297,7 @@ export function DynamicAttentionBar({ className = '' }: DynamicAttentionBarProps
               repeat: Infinity,
             }}
           >
-            <div className="w-2.5 h-2.5 sm:w-3 sm:h-3 rounded-full bg-amber-500" />
+            <div className="w-2.5 h-2.5 sm:w-3 sm:h-3 rounded-full bg-rose-500" />
           </motion.div>
         )}
 
@@ -322,7 +322,7 @@ export function DynamicAttentionBar({ className = '' }: DynamicAttentionBarProps
             {[0, 1, 2].map((i) => (
               <motion.div
                 key={i}
-                className="w-0.5 sm:w-1 h-3 sm:h-4 bg-gradient-to-t from-green-500 to-teal-500 rounded-full"
+                className="w-0.5 sm:w-1 h-3 sm:h-4 bg-gradient-to-t from-blue-500 to-teal-500 rounded-full"
                 animate={{
                   height: ['10px', '14px', '10px'],
                 }}

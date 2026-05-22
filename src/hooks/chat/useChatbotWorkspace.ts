@@ -20,7 +20,7 @@ export function useChatbotWorkspace() {
   const [isProcessing, setIsProcessing] = useState(false);
   const [uploadProgress, setUploadProgress] = useState(0);
   const [currentFlashcardIndex, setCurrentFlashcardIndex] = useState(0);
-  const [showFlashcardBack, setShowFlashcardBack] = useState(false);
+  const [revealedFlashcardIds, setRevealedFlashcardIds] = useState<Set<string>>(() => new Set());
   const [quizMode, setQuizMode] = useState(false);
   const [currentQuizIndex, setCurrentQuizIndex] = useState(0);
   const [quizAnswers, setQuizAnswers] = useState<{ [key: string]: number }>({});
@@ -59,8 +59,8 @@ export function useChatbotWorkspace() {
     setUploadProgress,
     currentFlashcardIndex,
     setCurrentFlashcardIndex,
-    showFlashcardBack,
-    setShowFlashcardBack,
+    revealedFlashcardIds,
+    setRevealedFlashcardIds,
     quizMode,
     setQuizMode,
     currentQuizIndex,

@@ -10961,6 +10961,418 @@ html {
     scroll-behavior: smooth
 }
 
+.chat-study-shell {
+    width: 100%;
+    -webkit-backdrop-filter: blur(16px);
+    backdrop-filter: blur(16px);
+    background: #fff;
+    border: 1px solid #cbd5e1;
+    border-radius: 1.25rem;
+    padding: 1.25rem;
+    box-shadow: 0 18px 42px #0f172a24
+}
+
+.dark .chat-study-shell {
+    background: #111827;
+    border-color: #334155;
+    box-shadow: 0 18px 45px #00000066
+}
+
+.chat-study-shell-flashcard {
+    border-color: #93c5fd
+}
+
+.chat-study-shell-quiz {
+    border-color: #5eead4
+}
+
+.chat-study-header {
+    justify-content: space-between;
+    align-items: flex-start;
+    gap: 1rem;
+    margin-bottom: 1rem;
+    display: flex
+}
+
+.chat-study-eyebrow {
+    color: #2563eb;
+    letter-spacing: 0;
+    text-transform: uppercase;
+    margin-bottom: .25rem;
+    font-size: .75rem;
+    font-weight: 700
+}
+
+.dark .chat-study-eyebrow {
+    color: #60a5fa
+}
+
+.chat-study-message {
+    color: hsl(var(--foreground));
+    font-size: .95rem;
+    line-height: 1.5
+}
+
+.chat-study-count,
+.chat-study-pill {
+    color: #1d4ed8;
+    background: #3b82f614;
+    border: 1px solid #3b82f62e;
+    flex-shrink: 0
+}
+
+.dark .chat-study-count,
+.dark .chat-study-pill {
+    color: #bfdbfe;
+    background: #3b82f624;
+    border-color: #60a5fa3d
+}
+
+.chat-flashcard-stage {
+    min-height: 16rem
+}
+
+.chat-flashcard-card {
+    cursor: pointer;
+    background: linear-gradient(135deg, #eff6ff, #f0fdfa);
+    border: 1px solid #93c5fd;
+    border-radius: 1rem;
+    min-height: 16rem;
+    overflow: hidden;
+    transition: border-color .18s, box-shadow .18s, transform .18s
+}
+
+.chat-flashcard-card:hover {
+    border-color: #2563eb;
+    box-shadow: 0 16px 36px #2563eb2e;
+    transform: translateY(-1px)
+}
+
+.chat-flashcard-card-back {
+    background: linear-gradient(135deg, #ecfdf5, #eff6ff);
+    border-color: #14b8a6
+}
+
+.dark .chat-flashcard-card {
+    background: linear-gradient(135deg, #172554, #134e4a);
+    border-color: #2563eb
+}
+
+.dark .chat-flashcard-card-back {
+    background: linear-gradient(135deg, #064e3b, #172554);
+    border-color: #14b8a6
+}
+
+.chat-flashcard-card-header {
+    padding: 1.1rem 1.1rem 0
+}
+
+.chat-flashcard-title-row {
+    justify-content: space-between;
+    align-items: flex-start;
+    gap: .75rem;
+    display: flex
+}
+
+.chat-flashcard-title {
+    color: #1d4ed8;
+    font-size: 1rem;
+    line-height: 1.3
+}
+
+.dark .chat-flashcard-title {
+    color: #93c5fd
+}
+
+.chat-flashcard-tags {
+    flex-wrap: wrap;
+    gap: .4rem;
+    margin-top: .6rem;
+    display: flex
+}
+
+.chat-flashcard-content {
+    padding: 1rem 1.1rem 1.15rem
+}
+
+.chat-flashcard-face {
+    text-align: center;
+    place-items: center;
+    gap: 1rem;
+    min-height: 9rem;
+    display: grid
+}
+
+.chat-flashcard-question {
+    color: hsl(var(--foreground));
+    max-width: 44rem;
+    font-size: 1.25rem;
+    font-weight: 600;
+    line-height: 1.45
+}
+
+.chat-flashcard-hint {
+    color: hsl(var(--muted-foreground));
+    font-size: .875rem
+}
+
+.chat-flashcard-answer-stack {
+    gap: .8rem;
+    display: grid
+}
+
+.chat-study-answer-card,
+.chat-study-note {
+    color: hsl(var(--foreground));
+    background: #fff;
+    border: 1px solid #cbd5e1;
+    border-radius: .85rem;
+    padding: .95rem
+}
+
+.dark .chat-study-answer-card,
+.dark .chat-study-note {
+    background: #0f172a;
+    border-color: #334155
+}
+
+.chat-study-section-label {
+    color: hsl(var(--muted-foreground));
+    letter-spacing: 0;
+    text-transform: uppercase;
+    margin-bottom: .35rem;
+    font-size: .74rem;
+    font-weight: 700
+}
+
+.chat-study-answer-text {
+    color: hsl(var(--foreground));
+    font-size: 1.05rem;
+    font-weight: 500;
+    line-height: 1.55
+}
+
+.chat-study-note {
+    font-size: .92rem;
+    line-height: 1.55
+}
+
+.chat-study-note-blue {
+    background: #eff6ff;
+    border-color: #93c5fd
+}
+
+.chat-study-note-amber {
+    background: #fffbeb;
+    border-color: #fbbf24
+}
+
+.chat-study-note-teal {
+    background: #f0fdfa;
+    border-color: #5eead4
+}
+
+.dark .chat-study-note-blue {
+    background: #172554;
+    border-color: #2563eb
+}
+
+.dark .chat-study-note-amber {
+    background: #451a03;
+    border-color: #d97706
+}
+
+.dark .chat-study-note-teal {
+    background: #134e4a;
+    border-color: #0d9488
+}
+
+.chat-study-primary-action {
+    justify-content: center;
+    margin-top: 1rem;
+    display: flex
+}
+
+.chat-study-nav {
+    grid-template-columns: 2.5rem 1fr 2.5rem;
+    align-items: center;
+    gap: .75rem;
+    margin-top: .9rem;
+    display: grid
+}
+
+.chat-study-nav-button {
+    background: #fff;
+    border-radius: .8rem;
+    width: 2.5rem;
+    height: 2.5rem
+}
+
+.dark .chat-study-nav-button {
+    background: #0f172a
+}
+
+.chat-study-position {
+    color: hsl(var(--muted-foreground));
+    text-align: center;
+    font-size: .875rem;
+    font-weight: 600
+}
+
+.chat-quiz-stack {
+    gap: .9rem;
+    display: grid
+}
+
+.chat-quiz-question-card {
+    background: #fff;
+    border: 1px solid #cbd5e1;
+    border-radius: 1rem;
+    padding: 1rem
+}
+
+.dark .chat-quiz-question-card {
+    background: #0f172a;
+    border-color: #334155
+}
+
+.chat-quiz-question-header {
+    grid-template-columns: auto 1fr;
+    align-items: flex-start;
+    gap: .8rem;
+    margin-bottom: .9rem;
+    display: grid
+}
+
+.chat-quiz-question-number {
+    color: #0f766e;
+    background: #14b8a61f;
+    border-radius: .7rem;
+    justify-content: center;
+    align-items: center;
+    min-width: 2.35rem;
+    height: 2rem;
+    font-size: .8rem;
+    font-weight: 800;
+    display: inline-flex
+}
+
+.dark .chat-quiz-question-number {
+    color: #5eead4
+}
+
+.chat-quiz-question-text {
+    color: hsl(var(--foreground));
+    font-weight: 600;
+    line-height: 1.5
+}
+
+.chat-quiz-options {
+    gap: .55rem;
+    display: grid
+}
+
+.chat-quiz-option {
+    text-align: left;
+    white-space: normal;
+    border-radius: .8rem;
+    justify-content: flex-start;
+    gap: .75rem;
+    height: auto;
+    min-height: auto;
+    padding: .75rem .85rem
+}
+
+.chat-quiz-option-selected {
+    color: #0f172a;
+    background: #ccfbf1;
+    border-color: #0d9488;
+    box-shadow: 0 0 0 1px #0d948833
+}
+
+.dark .chat-quiz-option-selected {
+    background: #134e4a;
+    border-color: #2dd4bf
+}
+
+.chat-quiz-option-letter {
+    color: hsl(var(--muted-foreground));
+    background: #94a3b824;
+    border-radius: 999px;
+    flex: 0 0 auto;
+    justify-content: center;
+    align-items: center;
+    width: 1.65rem;
+    height: 1.65rem;
+    font-size: .78rem;
+    font-weight: 800;
+    display: inline-flex
+}
+
+.chat-quiz-option-selected .chat-quiz-option-letter {
+    color: #fff;
+    background: #14b8a6
+}
+
+.chat-quiz-option-text {
+    color: hsl(var(--foreground));
+    flex: 1;
+    min-width: 0;
+    line-height: 1.4
+}
+
+.chat-quiz-option-check {
+    color: #0d9488;
+    flex-shrink: 0;
+    width: 1rem;
+    height: 1rem
+}
+
+.chat-quiz-complete {
+    text-align: center;
+    background: linear-gradient(135deg, #10b98129, #14b8a61f);
+    border: 1px solid #10b9814d;
+    border-radius: 1rem;
+    padding: 1.25rem
+}
+
+.chat-quiz-complete-title {
+    color: hsl(var(--foreground));
+    margin-bottom: .25rem;
+    font-size: 1.25rem;
+    font-weight: 800
+}
+
+.chat-quiz-complete-score {
+    color: hsl(var(--muted-foreground));
+    font-weight: 600
+}
+
+@media(max-width:640px) {
+    .chat-study-shell {
+        border-radius: 1rem;
+        padding: 1rem
+    }
+
+    .chat-study-header {
+        flex-direction: column;
+        align-items: stretch;
+        gap: .75rem
+    }
+
+    .chat-study-count {
+        width: fit-content
+    }
+
+    .chat-flashcard-question {
+        font-size: 1.1rem
+    }
+
+    .chat-quiz-question-header {
+        grid-template-columns: 1fr
+    }
+}
+
 @media(max-width:768px) {
     .chatbot-messages-scroll::-webkit-scrollbar {
         width: 4px
@@ -11299,6 +11711,21 @@ html {
 
 .border-glow-pulse {
     animation: 2s ease-in-out infinite border-glow-pulse
+}
+
+@keyframes emotional-popup-blue-glow {
+    0%,
+    to {
+        box-shadow: 0 0 10px #3b82f64d, inset 0 0 10px #3b82f61a
+    }
+
+    50% {
+        box-shadow: 0 0 20px #60a5fa80, inset 0 0 18px #3b82f633
+    }
+}
+
+.emotional-popup-blue-glow {
+    animation: 2s ease-in-out infinite emotional-popup-blue-glow
 }
 
 @keyframes typing-dot {
