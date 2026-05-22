@@ -71,7 +71,10 @@ export function DashboardSidebar({
               <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-blue-500 to-purple-600 glow-blue-purple">
                 <Sparkles className="h-6 w-6 text-white" />
               </div>
-              <span className="truncate text-xl font-semibold tracking-normal">FocusSpark</span>
+              <div className="min-w-0">
+                <span className="block truncate text-xl font-semibold leading-tight tracking-normal">FocusSpark</span>
+                <span className="block truncate text-xs text-secondary">Extension Workspace</span>
+              </div>
             </motion.div>
           )}
           <button

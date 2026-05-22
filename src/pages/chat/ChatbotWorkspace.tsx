@@ -1,40 +1,19 @@
 import { useState, useRef, useEffect } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import {
-  Send,
-  Plus,
-  Upload,
   Camera,
-  FileText,
-  Presentation,
-  ThumbsUp,
-  ThumbsDown,
   ChevronLeft,
-  ChevronRight,
-  Download,
-  Share2,
   GraduationCap,
-  Layers,
   ListChecks,
-  Eye,
-  X,
-  Check,
   Home,
-  ShieldAlert,
   BarChart2,
-  UserRound,
 } from 'lucide-react';
 import { Button } from '../../components/ui/button';
-import { Input } from '../../components/ui/input';
-import { Card, CardHeader, CardTitle, CardContent } from '../../components/ui/card';
-import { Progress } from '../../components/ui/progress';
 import { Badge } from '../../components/ui/badge';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '../../components/ui/dialog';
-import { Sheet, SheetContent, SheetHeader, SheetTitle } from '../../components/ui/sheet';
-import { toast } from 'sonner';
+import { toast, type ExternalToast } from 'sonner';
 import axios from 'axios';
 import { useFocus } from '../../context/FocusContext';
-import { FormattedAIMessage } from '../../components/shared/FormattedAIMessage';
 import { DynamicAttentionBar } from '../../features/focus/DynamicAttentionBar';
 import { EmotionalFeedbackPopup } from '../../features/focus/EmotionalFeedbackPopup';
 import { MotivationalPopup } from '../../components/shared/MotivationalPopup';
@@ -51,53 +30,12 @@ import {
 } from '../../utils/aiClient';
 import { getAuthHeaders } from '../../utils/backendClient';
 import { usePomodoro } from '../../context/PomodoroContext';
-
-interface Message {
-  id: string;
-  type: 'user' | 'ai' | 'flashcard' | 'quiz' | 'system';
-  content: string;
-  timestamp: Date;
-  attachmentName?: string;
-  backendMessageId?: number;
-  flashcards?: Flashcard[];
-  quizData?: QuizQuestion[];
-}
-
-interface Flashcard {
-  id: string;
-  title: string;
-  front: string;
-  back: string;
-  example?: string;
-  memoryTip?: string;
-  examShortcut?: string;
-  tags: string[];
-  difficulty: 'easy' | 'medium' | 'hard';
-  known: boolean;
-}
-
-interface QuizQuestion {
-  id: string;
-  question: string;
-  options: string[];
-  correctAnswer: number;
-  explanation: string;
-}
-
-interface UploadedDocument {
-  id: string;
-  name: string;
-  type: 'pdf' | 'ppt' | 'Word' | 'text' | 'image';
-  uploadDate: Date;
-  processed: boolean;
-}
-
-const LEARNING_PERSONAS = [
-  { id: 'sensei', name: 'Ultra Instinct Sensei', icon: 'Target', style: 'Mastery-focused with clear examples' },
-  { id: 'tutor', name: 'AI Tutor', icon: 'GraduationCap', style: 'Structured and academic' },
-  { id: 'partner', name: 'Study Partner', icon: 'Users', style: 'Friendly and collaborative' },
-  { id: 'coach', name: 'Focus Coach', icon: 'Dumbbell', style: 'Motivational and actionable' },
-];
+import { ChatComposer } from '../../components/chat/ChatComposer';
+import { ChatMessageList } from '../../components/chat/ChatMessageList';
+import { ChatSidePanel } from '../../components/chat/ChatSidePanel';
+import { UploadModal } from '../../components/chat/UploadModal';
+import { useChatbotWorkspace } from '../../hooks/chat/useChatbotWorkspace';
+import { AI_MODELS, createInitialMessages, type Flashcard, type Message, type QuizQuestion, type UploadedDocument } from './types/ChatTypes';
 
 interface ChatbotWorkspaceProps {
   onNavigate?: (page: string) => void;
@@ -107,39 +45,105 @@ export function ChatbotWorkspace({ onNavigate }: ChatbotWorkspaceProps = {}) {
   const chromeApi = (globalThis as typeof globalThis & { chrome?: any }).chrome;
   const { setIsFocused, isDetectionEnabled, setIsDetectionEnabled, focusScore: contextFocusScore, setFocusScore: setContextFocusScore, setEmotionalState } = useFocus();
   const { phase } = usePomodoro();
-  const [messages, setMessages] = useState<Message[]>([
-    {
-      id: '1',
-      type: 'ai',
-      content: "Hi, I'm your AI tutor. Ask a question, upload study material, or turn this chat into flashcards and quizzes.",
-      timestamp: new Date(),
-    },
-  ]);
-  const [inputValue, setInputValue] = useState('');
-  const [uploadModalOpen, setUploadModalOpen] = useState(false);
-  const [fileAccept, setFileAccept] = useState('.pdf,.ppt,.pptx,.doc,.docx,.txt');
-  const [selectedPersona] = useState('sensei');
-  const [pendingFile, setPendingFile] = useState<File | null>(null);
-  const [uploadedDocs, setUploadedDocs] = useState<UploadedDocument[]>([]);
-  const [isProcessing, setIsProcessing] = useState(false);
-  const [uploadProgress, setUploadProgress] = useState(0);
-  const [currentFlashcardIndex, setCurrentFlashcardIndex] = useState(0);
-  const [showFlashcardBack, setShowFlashcardBack] = useState(false);
-  const [quizMode, setQuizMode] = useState(false);
-  const [currentQuizIndex, setCurrentQuizIndex] = useState(0);
-  const [quizAnswers, setQuizAnswers] = useState<{ [key: string]: number }>({});
-  const [quizComplete, setQuizComplete] = useState(false);
-  const [showWelcome, setShowWelcome] = useState(true);
-  const [rightSidebarOpen, setRightSidebarOpen] = useState(true); // Start open by default
-  const [showEmotionalFeedback, setShowEmotionalFeedback] = useState(false);
+  const {
+    messages,
+    setMessages,
+    inputValue,
+    setInputValue,
+    uploadModalOpen,
+    setUploadModalOpen,
+    fileAccept,
+    setFileAccept,
+    selectedModel,
+    setSelectedModel,
+    setCurrentThreadProvider,
+    pendingFile,
+    setPendingFile,
+    uploadedDocs,
+    setUploadedDocs,
+    isProcessing,
+    setIsProcessing,
+    uploadProgress,
+    setUploadProgress,
+    currentFlashcardIndex,
+    setCurrentFlashcardIndex,
+    showFlashcardBack,
+    setShowFlashcardBack,
+    quizMode,
+    setQuizMode,
+    currentQuizIndex,
+    setCurrentQuizIndex,
+    quizAnswers,
+    setQuizAnswers,
+    quizComplete,
+    setQuizComplete,
+    showWelcome,
+    setShowWelcome,
+    rightSidebarOpen,
+    setRightSidebarOpen,
+    showEmotionalFeedback,
+    setShowEmotionalFeedback,
+    isThreadModelLocked,
+    activeModel,
+    activeModelDetails,
+  } = useChatbotWorkspace();
 
   // Pomodoro Timer States
   const [timerDropdownOpen, setTimerDropdownOpen] = useState(false);
   const [timerControlPanelOpen, setTimerControlPanelOpen] = useState(false);
 
+  const showTopToast = (
+    kind: 'success' | 'info' | 'warning' | 'error',
+    message: string,
+    options: ExternalToast = {},
+  ) => {
+    toast[kind](message, {
+      position: 'top-right',
+      ...options,
+    });
+  };
+
+  const showBottomToast = (
+    kind: 'success' | 'info' | 'warning' | 'error',
+    message: string,
+    options: ExternalToast = {},
+  ) => {
+    toast[kind](message, {
+      position: 'bottom-right',
+      ...options,
+    });
+  };
+
   useEffect(() => {
     resetTutorThread();
+    setEmotionState('neutral');
+    setEmotionalState('neutral');
+    setFocusState('idle');
+    setIsFocused(false);
+    setContextFocusScore(50);
   }, []);
+
+  const startNewThread = () => {
+    resetTutorThread();
+    setCurrentThreadProvider(null);
+    setMessages(createInitialMessages());
+    setInputValue('');
+    setPendingFile(null);
+    setUploadedDocs([]);
+    setUploadProgress(0);
+    setCurrentFlashcardIndex(0);
+    setShowFlashcardBack(false);
+    setQuizAnswers({});
+    setQuizComplete(false);
+    setCurrentQuizIndex(0);
+    if (fileInputRef.current) {
+      fileInputRef.current.value = '';
+    }
+    showBottomToast('success', 'Started a new AI Tutor thread.', {
+      id: 'chat-new-thread',
+      duration: 2500,
+    });
+  };
 
   // Full-Screen Dynamic Environment States
   const [focusState, setFocusState] = useState<'focused' | 'attention' | 'idle'>('focused');
@@ -187,8 +191,8 @@ export function ChatbotWorkspace({ onNavigate }: ChatbotWorkspaceProps = {}) {
 
     warnCooldownRef.current = now;
     setFocusDriftCount((count) => count + 1);
-    toast.warning('You are distracted. Refocus on your session.', {
-      position: 'top-right',
+    showTopToast('warning', 'You are distracted. Refocus on your session.', {
+      id: 'chat-focus-distracted',
       duration: 3000,
     });
   };
@@ -204,7 +208,7 @@ export function ChatbotWorkspace({ onNavigate }: ChatbotWorkspaceProps = {}) {
 
     if (prevFocusedRef.current && !incomingFocused) {
       notifyDistracted();
-      setMotivationalMessage('Wake Up — Concentrate Now!');
+      setMotivationalMessage('Wake Up - Concentrate Now!');
       setShowMotivationalPopup(true);
       setTimeout(() => setShowMotivationalPopup(false), 3000);
     }
@@ -308,15 +312,15 @@ export function ChatbotWorkspace({ onNavigate }: ChatbotWorkspaceProps = {}) {
     syncStrictModeToBackground(nextMode);
 
     if (nextMode) {
-      toast.info('🔒 Strict Mode ON — distractions blocked!', {
-        position: 'top-right',
+      showTopToast('info', 'Strict Mode ON - distractions blocked!', {
+        id: 'chat-strict-mode',
         duration: 3000,
       });
       return;
     }
 
-    toast.info('🔓 Strict Mode OFF.', {
-      position: 'top-right',
+    showTopToast('info', 'Strict Mode OFF.', {
+      id: 'chat-strict-mode',
       duration: 2500,
     });
   };
@@ -345,14 +349,14 @@ export function ChatbotWorkspace({ onNavigate }: ChatbotWorkspaceProps = {}) {
         const nextCount = Number(message.count || 1);
         setDistractionCount(nextCount);
 
-        toast.warning('Tab changed detected. Please return to your study tab.', {
-          position: 'top-right',
+        showTopToast('warning', 'Tab changed detected. Please return to your study tab.', {
+          id: 'chat-tab-changed',
           duration: 3500,
         });
 
         if (nextCount >= 3) {
-          toast.error('Distracted multiple times. Lock back in now.', {
-            position: 'top-right',
+          showTopToast('error', 'Distracted multiple times. Lock back in now.', {
+            id: 'chat-repeated-distraction',
             duration: 4000,
           });
         }
@@ -365,8 +369,8 @@ export function ChatbotWorkspace({ onNavigate }: ChatbotWorkspaceProps = {}) {
       if (message.type === 'STRICT_MODE_FORCED_OFF') {
         setIsStrictMode(false);
         localStorage.setItem('focusspark-strict-mode', 'false');
-        toast.info('Strict Mode was disabled because the focus tab was closed.', {
-          position: 'top-right',
+        showTopToast('info', 'Strict Mode was disabled because the focus tab was closed.', {
+          id: 'chat-strict-mode-forced-off',
           duration: 4000,
         });
       }
@@ -392,8 +396,8 @@ export function ChatbotWorkspace({ onNavigate }: ChatbotWorkspaceProps = {}) {
         return;
       }
 
-      toast.info('You switched tabs. Stay focused on your study session.', {
-        position: 'top-right',
+      showTopToast('info', 'You switched tabs. Stay focused on your study session.', {
+        id: 'chat-visibility-warning',
         duration: 2500,
       });
     };
@@ -422,11 +426,18 @@ export function ChatbotWorkspace({ onNavigate }: ChatbotWorkspaceProps = {}) {
     }
 
     if (!isDetectionEnabled) {
+      const initialTimer = window.setTimeout(() => {
+        setShowEmotionalFeedback(true);
+      }, 2500);
+
       const interval = setInterval(() => {
         setShowEmotionalFeedback(true);
-      }, 30000); // Show every 30 seconds
+      }, 120000);
 
-      return () => clearInterval(interval);
+      return () => {
+        window.clearTimeout(initialTimer);
+        clearInterval(interval);
+      };
     }
   }, [isDetectionEnabled]);
 
@@ -462,8 +473,8 @@ export function ChatbotWorkspace({ onNavigate }: ChatbotWorkspaceProps = {}) {
           }, 3000);
         };
       } catch {
-        toast.error('Camera access failed. Detection unavailable.', {
-          position: 'top-right',
+        showTopToast('error', 'Camera access failed. Detection unavailable.', {
+          id: 'chat-camera-access-failed',
           duration: 3000,
         });
       }
@@ -487,8 +498,8 @@ export function ChatbotWorkspace({ onNavigate }: ChatbotWorkspaceProps = {}) {
 
     ws.onopen = () => {
       setTransportMode('ws');
-      toast.success('Socket connected', {
-        position: 'top-right',
+      showTopToast('success', 'Socket connected', {
+        id: 'chat-socket-status',
         duration: 2000,
       });
     };
@@ -509,8 +520,8 @@ export function ChatbotWorkspace({ onNavigate }: ChatbotWorkspaceProps = {}) {
 
       if (isDetectionEnabled) {
         setTransportMode('http');
-        toast.info('Realtime socket unavailable. Switched to HTTP mode.', {
-          position: 'top-right',
+        showTopToast('info', 'Realtime socket unavailable. Switched to HTTP mode.', {
+          id: 'chat-socket-status',
           duration: 3000,
         });
       }
@@ -518,8 +529,8 @@ export function ChatbotWorkspace({ onNavigate }: ChatbotWorkspaceProps = {}) {
 
     ws.onerror = () => {
       setTransportMode('http');
-      toast.error('Socket connection failed. Using HTTP fallback.', {
-        position: 'top-right',
+      showTopToast('error', 'Socket connection failed. Using HTTP fallback.', {
+        id: 'chat-socket-status',
         duration: 3000,
       });
     };
@@ -556,19 +567,27 @@ export function ChatbotWorkspace({ onNavigate }: ChatbotWorkspaceProps = {}) {
     if (!isDetectionEnabled) {
       // When detection is disabled, reset the focused state
       setIsFocused(false);
-      setContextFocusScore(0);
+      setContextFocusScore(50);
       setFocusState('idle');
+      setEmotionState('neutral');
+      setEmotionalState('neutral');
     }
-  }, [isDetectionEnabled, setContextFocusScore, setIsFocused]);
+  }, [isDetectionEnabled, setContextFocusScore, setEmotionalState, setIsFocused]);
 
   const handleCameraToggle = () => {
     const nextEnabled = !isDetectionEnabled;
     setIsDetectionEnabled(nextEnabled);
 
     if (nextEnabled) {
-      toast.success('✅ Camera enabled! Focus detection started.', { duration: 3000 });
+      showTopToast('success', 'Camera enabled! Focus detection started.', {
+        id: 'chat-camera-toggle',
+        duration: 3000,
+      });
     } else {
-      toast.info('📵 Camera disabled. Emotional feedback activated.', { duration: 3000 });
+      showTopToast('info', 'Camera disabled. Emotional feedback activated.', {
+        id: 'chat-camera-toggle',
+        duration: 3000,
+      });
     }
   };
 
@@ -631,14 +650,16 @@ export function ChatbotWorkspace({ onNavigate }: ChatbotWorkspaceProps = {}) {
       }, 200);
 
       try {
-        const threadId = await getOrCreateTutorThreadId();
+        const threadProvider = activeModel;
+        const threadId = await getOrCreateTutorThreadId(threadProvider);
+        setCurrentThreadProvider(threadProvider);
         const authHeaders = await getAuthHeaders();
         const form = new FormData();
         form.append('thread_id', String(threadId));
         form.append('message', userInput);
         form.append('file', file);
 
-        await axios.post(buildBackendUrl(BACKEND_ROUTES.chatDocument), form, {
+        const response = await axios.post(buildBackendUrl(BACKEND_ROUTES.chatDocument), form, {
           headers: {
             ...authHeaders,
             'Content-Type': 'multipart/form-data',
@@ -655,18 +676,30 @@ export function ChatbotWorkspace({ onNavigate }: ChatbotWorkspaceProps = {}) {
 
         setUploadedDocs((prev) => [...prev, newDoc]);
 
-        const summaryMessage: Message = {
+        const responseText = response.data?.response;
+        const messageId = response.data?.message_id;
+        const aiMessage: Message = {
           id: Date.now().toString(),
-          type: 'system',
-          content: `Document "${file.name}" processed successfully!`,
+          type: 'ai',
+          content: typeof responseText === 'string' && responseText.trim()
+            ? responseText
+            : `Document "${file.name}" processed successfully!`,
           timestamp: new Date(),
+          attachmentName: file.name,
+          backendMessageId: typeof messageId === 'number' ? messageId : undefined,
         };
 
-        setMessages((prev) => [...prev, summaryMessage]);
-        toast.success('Document uploaded and processed!');
+        setMessages((prev) => [...prev, aiMessage]);
+        showBottomToast('success', 'Document uploaded and processed!', {
+          id: 'chat-document-uploaded',
+          duration: 3000,
+        });
       } catch (error) {
         console.error('Document upload failed:', error);
-        toast.error('Upload failed. Please try another supported file.');
+        showBottomToast('error', 'Upload failed. Please try another supported file.', {
+          id: 'chat-document-upload-failed',
+          duration: 3500,
+        });
         setPendingFile(file);
       } finally {
         clearInterval(interval);
@@ -699,17 +732,28 @@ export function ChatbotWorkspace({ onNavigate }: ChatbotWorkspaceProps = {}) {
         .map((m) => `${m.type === 'user' ? 'USER' : 'AI'}: ${m.content}`)
         .join('\n');
 
-      // Determine persona from selected persona state
-      const personaMap: { [key: string]: 'sensei' | 'tutor' | 'partner' | 'coach' } = {
-        sensei: 'sensei',
-        tutor: 'tutor',
-        partner: 'partner',
-        coach: 'coach',
-      };
-      const currentPersona = personaMap[selectedPersona] || 'sensei';
+      const simpleReply = getSimpleReply(trimmedInput);
+
+      if (simpleReply) {
+        const greetingMessage: Message = {
+          id: `${Date.now()}-simple`,
+          type: 'ai',
+          content: simpleReply,
+          timestamp: new Date(),
+        };
+
+        setMessages((prev) => [...prev, greetingMessage]);
+        setIsProcessing(false);
+        return;
+      }
 
       // Call real AI
-      const response = await chatWithAITutor(userInput, conversationHistory, currentPersona);
+      const threadProvider = activeModel;
+      const response = await chatWithAITutor(userInput, conversationHistory, threadProvider);
+      if (!response.success) {
+        throw new Error(response.error || 'AI request failed');
+      }
+      setCurrentThreadProvider(threadProvider);
 
       const aiMessage: Message = {
         id: Date.now().toString(),
@@ -725,7 +769,7 @@ export function ChatbotWorkspace({ onNavigate }: ChatbotWorkspaceProps = {}) {
       const errorMessage: Message = {
         id: Date.now().toString(),
         type: 'ai',
-        content: '⚠️ Sorry, I encountered an error. Please try again.',
+        content: 'Sorry, I encountered an error. Please try again.',
         timestamp: new Date(),
       };
       setMessages((prev) => [...prev, errorMessage]);
@@ -743,7 +787,7 @@ export function ChatbotWorkspace({ onNavigate }: ChatbotWorkspaceProps = {}) {
         back: 'It states that you cannot simultaneously know both the exact position and exact momentum of a particle.',
         example: 'Like trying to measure the exact speed of a moving car while pinpointing its exact location at the same instant.',
         memoryTip: 'Think: "Heisen-BLUR" - the more precisely you know one thing, the blurrier the other becomes',
-        examShortcut: 'ΔxΔp ≥ ℏ/2',
+        examShortcut: 'Delta x * Delta p >= h-bar / 2',
         tags: ['physics', 'quantum', 'core-concept'],
         difficulty: 'hard',
         known: false,
@@ -753,7 +797,7 @@ export function ChatbotWorkspace({ onNavigate }: ChatbotWorkspaceProps = {}) {
         title: 'Photosynthesis',
         front: 'What are the two main stages of photosynthesis?',
         back: 'Light-dependent reactions (in thylakoids) and Light-independent reactions / Calvin Cycle (in stroma)',
-        example: 'Stage 1: Sun energy → ATP. Stage 2: ATP → Glucose',
+        example: 'Stage 1: Sun energy to ATP. Stage 2: ATP to Glucose',
         memoryTip: 'Light first, then Dark. L comes before D in alphabet!',
         tags: ['biology', 'plants', 'energy'],
         difficulty: 'medium',
@@ -809,7 +853,10 @@ export function ChatbotWorkspace({ onNavigate }: ChatbotWorkspaceProps = {}) {
       .filter(Boolean);
 
     if (!supportedExtensions.includes(extension)) {
-      toast.error('Wrong file type. Please select a PDF, PPT, Word, or TXT file.');
+      showBottomToast('error', 'Wrong file type. Please select a PDF, PPT, Word, or TXT file.', {
+        id: 'chat-wrong-file-type',
+        duration: 3500,
+      });
       if (fileInputRef.current) {
         fileInputRef.current.value = '';
       }
@@ -817,7 +864,10 @@ export function ChatbotWorkspace({ onNavigate }: ChatbotWorkspaceProps = {}) {
     }
 
     if (!selectedExtensions.includes(extension)) {
-      toast.error('Please select the same file type you clicked.');
+      showBottomToast('error', 'Please select the same file type you clicked.', {
+        id: 'chat-file-type-mismatch',
+        duration: 3500,
+      });
       if (fileInputRef.current) {
         fileInputRef.current.value = '';
       }
@@ -831,29 +881,48 @@ export function ChatbotWorkspace({ onNavigate }: ChatbotWorkspaceProps = {}) {
 
 
 
-  const handleFlashcardKnown = (_cardId: string, known: boolean) => {
+  const handleFlashcardKnown = (cardId: string, known: boolean) => {
     const motivationalMessages = [
-      'Your focus is glowing strong 💡',
-      'Keep up the momentum! 🚀',
-      'You\'re on fire! 🔥',
-      'Learning mastery unlocked! ⚡',
-      'Brain power activated! 🧠',
+      'Your focus is strong.',
+      'Keep up the momentum!',
+      'You are on a roll.',
+      'Learning mastery unlocked.',
+      'Brain power activated.',
     ];
 
     const reviewMessages = [
-      'Practice makes perfect! 📚',
-      'Growth mindset activated! 🌱',
-      'Every review strengthens memory! 💪',
-      'You got this! Keep reviewing! 🎯',
+      'Practice makes perfect.',
+      'Growth mindset activated.',
+      'Every review strengthens memory.',
+      'You got this. Keep reviewing!',
     ];
 
     if (known) {
       const msg = motivationalMessages[Math.floor(Math.random() * motivationalMessages.length)];
-      toast.success(msg);
+      showBottomToast('success', msg, {
+        id: `chat-flashcard-known-${cardId}`,
+        duration: 2200,
+      });
     } else {
       const msg = reviewMessages[Math.floor(Math.random() * reviewMessages.length)];
-      toast.info(msg);
+      showBottomToast('info', msg, {
+        id: `chat-flashcard-review-${cardId}`,
+        duration: 2200,
+      });
     }
+
+    setMessages((prev) =>
+      prev.map((message) => {
+        if (message.type !== 'flashcard' || !message.flashcards) return message;
+
+        return {
+          ...message,
+          flashcards: message.flashcards.map((card) =>
+            card.id === cardId ? { ...card, known } : card,
+          ),
+        };
+      }),
+    );
   };
 
   const getLatestChatMessageId = () => {
@@ -873,13 +942,33 @@ export function ChatbotWorkspace({ onNavigate }: ChatbotWorkspaceProps = {}) {
 
   const hasUserChatMessage = () => messages.some((message) => message.type === 'user');
 
+  const getSimpleReply = (text: string) => {
+    const normalized = text
+      .trim()
+      .toLowerCase()
+      .replace(/[!?.]+$/g, '')
+      .replace(/\s+/g, ' ');
+
+    const simpleReplies: Record<string, string> = {
+      hi: "Hi. I'm FocusSpark AI Tutor. Tell me what you want to learn, and I'll keep it simple and useful.",
+      hello: "Hello. I'm FocusSpark AI Tutor. Share a topic or question, and I'll help you work through it step by step.",
+      hey: "Hey. I'm FocusSpark AI Tutor. Ask me about any topic, and I'll help you break it down clearly.",
+      bye: 'Bye. Come back anytime when you want to study again.',
+      goodbye: 'Goodbye. I will be here when you are ready to keep learning.',
+      thanks: "You're welcome. Send me a real question whenever you're ready.",
+      'thank you': "You're welcome. Send me a real question whenever you're ready.",
+      thankyou: "You're welcome. Send me a real question whenever you're ready.",
+    };
+
+    return simpleReplies[normalized] ?? null;
+  };
+
   const mapFlashcardsResponse = (rawText: string): Flashcard[] => {
     try {
       const payload = JSON.parse(rawText) as {
         flashcards?: Array<Record<string, unknown>>;
         data?: { flashcards?: Array<Record<string, unknown>> };
       } | Array<Record<string, unknown>>;
-
       const sourceFlashcards = Array.isArray(payload)
         ? payload
         : payload.flashcards ?? payload.data?.flashcards ?? [];
@@ -888,6 +977,7 @@ export function ChatbotWorkspace({ onNavigate }: ChatbotWorkspaceProps = {}) {
         .map((card, index) => ({
           id: String(card.id ?? card.card_id ?? `${Date.now()}-${index}`),
           title: String(card.title ?? card.topic ?? 'Chat Flashcards'),
+          topic: String(card.topic ?? card.subject ?? card.category ?? '').trim() || undefined,
           front: String(card.front ?? card.question ?? ''),
           back: String(card.back ?? card.answer ?? card.explanation ?? ''),
           example: typeof card.example === 'string' ? card.example : undefined,
@@ -935,13 +1025,19 @@ export function ChatbotWorkspace({ onNavigate }: ChatbotWorkspaceProps = {}) {
 
   const handleCreateFlashcardsFromChat = async () => {
     if (!hasUserChatMessage()) {
-      toast.info('Start a chat first, then create flashcards from it.', { duration: 3500 });
+      showBottomToast('info', 'Start a chat first, then create flashcards from it.', {
+        id: 'chat-flashcards-no-chat',
+        duration: 3500,
+      });
       return;
     }
 
     const messageId = getLatestChatMessageId();
     if (messageId === null) {
-      toast.info('Send a chat message first, then create flashcards from it.', { duration: 3500 });
+      showBottomToast('info', 'Send a chat message first, then create flashcards from it.', {
+        id: 'chat-flashcards-no-message',
+        duration: 3500,
+      });
       return;
     }
 
@@ -957,16 +1053,22 @@ export function ChatbotWorkspace({ onNavigate }: ChatbotWorkspaceProps = {}) {
       const flashcardMessage: Message = {
         id: Date.now().toString(),
         type: 'flashcard',
-        content: '🔥 Flashcards created from this chat thread.',
+        content: 'Flashcards created from this chat thread.',
         timestamp: new Date(),
         flashcards,
       };
 
       setMessages((prev) => [...prev, flashcardMessage]);
-      toast.success('Flashcards created from chat.', { duration: 3000 });
+      showBottomToast('success', 'Flashcards created from chat.', {
+        id: 'chat-flashcards-created',
+        duration: 3000,
+      });
     } catch (error) {
       console.error('Flashcards from chat failed:', error);
-      toast.error('Could not create flashcards from chat. Please try again.', { duration: 3500 });
+      showBottomToast('error', 'Could not create flashcards from chat. Please try again.', {
+        id: 'chat-flashcards-error',
+        duration: 3500,
+      });
     } finally {
       setIsProcessing(false);
     }
@@ -974,13 +1076,19 @@ export function ChatbotWorkspace({ onNavigate }: ChatbotWorkspaceProps = {}) {
 
   const handleCreateQuizFromChat = async () => {
     if (!hasUserChatMessage()) {
-      toast.info('Start a chat first, then create a quiz from it.', { duration: 3500 });
+      showBottomToast('info', 'Start a chat first, then create a quiz from it.', {
+        id: 'chat-quiz-no-chat',
+        duration: 3500,
+      });
       return;
     }
 
     const messageId = getLatestChatMessageId();
     if (messageId === null) {
-      toast.info('Send a chat message first, then create a quiz from it.', { duration: 3500 });
+      showBottomToast('info', 'Send a chat message first, then create a quiz from it.', {
+        id: 'chat-quiz-no-message',
+        duration: 3500,
+      });
       return;
     }
 
@@ -996,23 +1104,30 @@ export function ChatbotWorkspace({ onNavigate }: ChatbotWorkspaceProps = {}) {
       const quizMessage: Message = {
         id: Date.now().toString(),
         type: 'quiz',
-        content: '📝 Quiz created from this chat thread.',
+        content: 'Quiz created from this chat thread.',
         timestamp: new Date(),
         quizData,
       };
 
       setMessages((prev) => [...prev, quizMessage]);
-      toast.success('Quiz created from chat.', { duration: 3000 });
+      showBottomToast('success', 'Quiz created from chat.', {
+        id: 'chat-quiz-created',
+        duration: 3000,
+      });
     } catch (error) {
       console.error('Quiz from chat failed:', error);
-      toast.error('Could not create quiz from chat. Please try again.', { duration: 3500 });
+      showBottomToast('error', 'Could not create quiz from chat. Please try again.', {
+        id: 'chat-quiz-error',
+        duration: 3500,
+      });
     } finally {
       setIsProcessing(false);
     }
   };
 
   const handleSaveDeck = () => {
-    toast.success('🎉 Deck saved to your library! Access it anytime from your collection.', {
+    showBottomToast('success', 'Deck saved to your library. Access it anytime from your collection.', {
+      id: 'chat-deck-saved',
       duration: 4000,
     });
   };
@@ -1020,33 +1135,53 @@ export function ChatbotWorkspace({ onNavigate }: ChatbotWorkspaceProps = {}) {
   void handleSaveDeck;
 
   const handleExportDeck = () => {
-    toast.success('⬇️ Exporting deck as CSV... Check your downloads folder!', {
+    showBottomToast('success', 'Exporting deck as CSV... Check your downloads folder!', {
+      id: 'chat-deck-exporting',
       duration: 4000,
     });
     // Simulate download
     setTimeout(() => {
-      toast.success('✅ Export complete! Your flashcards are ready.');
+      showBottomToast('success', 'Export complete. Your flashcards are ready.', {
+        id: 'chat-deck-export-complete',
+        duration: 3000,
+      });
     }, 2000);
   };
 
   const handleShareDeck = () => {
-    toast.success('🔗 Share link copied to clipboard! Send it to your study group.', {
+    showBottomToast('success', 'Share link copied to clipboard. Send it to your study group.', {
+      id: 'chat-deck-shared',
       duration: 4000,
     });
   };
 
-  const getCurrentPersona = () => {
-    return LEARNING_PERSONAS.find((p) => p.id === selectedPersona) || LEARNING_PERSONAS[0];
-  };
+  const flashcardStats = messages.reduce(
+    (stats, message) => {
+      if (message.type !== 'flashcard' || !message.flashcards) return stats;
+
+      message.flashcards.forEach((card) => {
+        stats.total += 1;
+        if (card.known) {
+          stats.known += 1;
+        }
+      });
+
+      return stats;
+    },
+    { total: 0, known: 0 },
+  );
+
+  const cardsToReview = flashcardStats.total - flashcardStats.known;
 
   const handleEmotionalFeedback = (emotion: 'focused' | 'tired' | 'distracted') => {
     const responses = {
-      focused: 'Great! Keep up the momentum! 🚀',
-      tired: 'Consider taking a short break. A 5-minute walk can help! ☕',
-      distracted: 'Let\'s refocus together. Try the Pomodoro technique! 🎯',
+      focused: 'Great. Keep up the momentum!',
+      tired: 'Consider taking a short break. A 5-minute walk can help.',
+      distracted: 'Let\'s refocus together. Try the Pomodoro technique.',
     };
 
-    toast.success(responses[emotion], {
+    showTopToast('success', responses[emotion], {
+      id: 'chat-emotional-feedback',
       duration: 4000,
     });
 
@@ -1081,26 +1216,26 @@ export function ChatbotWorkspace({ onNavigate }: ChatbotWorkspaceProps = {}) {
         case 'happy':
           // Vibrant energetic greens and teals for happiness
           if (isDark) {
-            return 'linear-gradient(135deg, #1a4a3a 0%, #1a3a4a 25%, #2a4a3a 50%, #1a4a45 75%, #1a3a3a 100%)';
+            return 'linear-gradient(135deg, #123B35 0%, #164E63 35%, #14532D 70%, #134E4A 100%)';
           }
           return 'linear-gradient(135deg, #A7F3D0 0%, #6EE7B7 25%, #34D399 50%, #10B981 75%, #059669 100%)';
         case 'sad':
           // Moody reds and deep oranges for sadness
           if (isDark) {
-            return 'linear-gradient(135deg, #4a1a1a 0%, #4a2a1a 25%, #3a1a2a 50%, #4a1a2a 75%, #3a1a1a 100%)';
+            return 'linear-gradient(135deg, #4A1D2F 0%, #581C2A 35%, #3B2247 70%, #3A1F2B 100%)';
           }
-          return 'linear-gradient(135deg, #FCA5A5 0%, #F87171 25%, #EF4444 50%, #DC2626 75%, #B91C1C 100%)';
+          return 'linear-gradient(135deg, #FFF1F2 0%, #FECACA 35%, #FDA4AF 70%, #FB7185 100%)';
         case 'tired':
           // Soft warm tones for low-energy study mode
           if (isDark) {
-            return 'linear-gradient(135deg, #3d2f1f 0%, #4a3a24 35%, #3a3325 70%, #2f2d28 100%)';
+            return 'linear-gradient(135deg, #3B2F1D 0%, #4A351D 40%, #343629 75%, #2F3540 100%)';
           }
           return 'linear-gradient(135deg, #FFE8A3 0%, #FDCB6E 35%, #F6B35B 70%, #E8A24A 100%)';
         case 'neutral':
         default:
           // Balanced neutral tones while waiting for feedback
           if (isDark) {
-            return 'linear-gradient(135deg, #27313f 0%, #263a37 45%, #34372f 100%)';
+            return 'linear-gradient(135deg, #1F2937 0%, #243744 45%, #27313F 100%)';
           }
           return 'linear-gradient(135deg, #EEF6FF 0%, #E4F7F1 45%, #FFF7D6 100%)';
       }
@@ -1112,19 +1247,19 @@ export function ChatbotWorkspace({ onNavigate }: ChatbotWorkspaceProps = {}) {
         if (isDark) {
           return 'linear-gradient(135deg, #1a2a4a 0%, #1a3d4a 50%, #1a4a47 100%)';
         }
-        return 'linear-gradient(135deg, #A1C4FD 0%, #C2E9FB 50%, #B2FEFA 100%)';
+        return 'linear-gradient(135deg, #DBEAFE 0%, #BAE6FD 45%, #99F6E4 100%)';
       case 'attention':
         // Warm vibrant tones to trigger alertness - ORANGE/YELLOW for ATTENTION NEEDED
         if (isDark) {
           return 'linear-gradient(135deg, #4a2a1a 0%, #4a3d1a 50%, #4a3a1a 100%)';
         }
-        return 'linear-gradient(135deg, #FF9966 0%, #FFD200 50%, #F7971E 100%)';
+        return 'linear-gradient(135deg, #FFF7ED 0%, #FED7AA 45%, #FDBA74 100%)';
       case 'idle':
         // Gentle neutral hues for balance - GRAY/MUTED for IDLE
         if (isDark) {
           return 'linear-gradient(135deg, #2a2d3a 0%, #2d3a2d 50%, #3a3d2a 100%)';
         }
-        return 'linear-gradient(135deg, #E0EAFC 0%, #CFDEF3 50%, #DCE35B 100%)';
+        return 'linear-gradient(135deg, #F8FAFC 0%, #E0F2FE 45%, #D1FAE5 100%)';
       default:
         if (isDark) {
           return 'linear-gradient(135deg, #1a2a4a 0%, #1a3d4a 100%)';
@@ -1225,6 +1360,7 @@ export function ChatbotWorkspace({ onNavigate }: ChatbotWorkspaceProps = {}) {
                 <GraduationCap className="w-6 h-6 text-blue-500" />
                 <h2 className="text-lg lg:text-xl whitespace-nowrap">AI Tutor</h2>
               </div>
+
             </div>
 
             {/* Center: Dynamic Attention Bar with integrated Pomodoro progress */}
@@ -1306,815 +1442,69 @@ export function ChatbotWorkspace({ onNavigate }: ChatbotWorkspaceProps = {}) {
           </div>
         </div>
 
-        {/* Chat Messages - Scrollable Area */}
-        <div className="flex-1 overflow-y-auto overflow-x-hidden p-6 chatbot-messages-scroll">
-          <div className="max-w-5xl mx-auto space-y-6 pb-6">
-            <AnimatePresence>
-              {messages.map((message) => (
-                <motion.div
-                  key={message.id}
-                  initial={{ opacity: 0, y: 20 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  transition={{ duration: 0.3 }}
-                  className={`flex ${message.type === 'user' ? 'justify-end' : 'justify-start'}`}
-                >
-                  {/* User Messages */}
-                  {message.type === 'user' && (
-                    <div className="max-w-2xl rounded-3xl px-5 py-4 bg-card dark:bg-gray-900/70 backdrop-blur-md border border-blue-500/30 dark:border-gray-700 shadow-lg">
-                      <div className="flex flex-row-reverse items-start gap-3">
-                        <div className="w-8 h-8 rounded-full bg-blue-500 flex items-center justify-center flex-shrink-0 mt-0.5">
-                          <UserRound className="w-4 h-4 text-white" />
-                        </div>
-                        <div className="flex-1 min-w-0 space-y-3 text-right">
-                          {message.content && (
-                            <p className="text-foreground whitespace-pre-wrap leading-relaxed">{message.content}</p>
-                          )}
-                          {message.attachmentName && (
-                            <div className="ml-auto flex max-w-full items-center gap-2 rounded-xl border border-blue-500/25 bg-blue-500/10 px-3 py-2 text-left">
-                              <FileText className="h-4 w-4 flex-shrink-0 text-blue-400" />
-                              <span className="truncate text-sm font-medium text-foreground">{message.attachmentName}</span>
-                            </div>
-                          )}
-                          <span className="text-xs text-muted-foreground mt-2 block">
-                            {message.timestamp.toLocaleTimeString()}
-                          </span>
-                        </div>
-                      </div>
-                    </div>
-                  )}
+        <ChatMessageList
+          messages={messages}
+          isProcessing={isProcessing}
+          uploadProgress={uploadProgress}
+          chatEndRef={chatEndRef}
+          currentFlashcardIndex={currentFlashcardIndex}
+          showFlashcardBack={showFlashcardBack}
+          quizAnswers={quizAnswers}
+          onShowFlashcardBackChange={setShowFlashcardBack}
+          onCurrentFlashcardIndexChange={setCurrentFlashcardIndex}
+          onQuizAnswersChange={setQuizAnswers}
+          onFlashcardKnown={handleFlashcardKnown}
+        />
 
-                  {/* AI Messages */}
-                  {message.type === 'ai' && (
-                    <FormattedAIMessage
-                      content={message.content}
-                      timestamp={message.timestamp}
-                    />
-                  )}
-
-                  {/* System Messages */}
-                  {message.type === 'system' && (
-                    <div className="w-full rounded-2xl px-6 py-4 border border-teal-500/30 bg-card dark:bg-gray-900/70 backdrop-blur-md shadow-lg">
-                      <div className="flex items-center gap-3">
-                        <Check className="w-5 h-5 text-teal-400" />
-                        <p className="text-foreground">{message.content}</p>
-                      </div>
-                    </div>
-                  )}
-
-                  {/* Flashcard Messages */}
-                  {message.type === 'flashcard' && message.flashcards && (
-                    <div className="w-full space-y-4">
-                      <div className="rounded-2xl px-6 py-4 bg-white/95 dark:bg-[#1C1F2A]/95 backdrop-blur-md shadow-lg">
-                        <p className="mb-4 text-foreground">{message.content}</p>
-
-                        {/* Flashcard Carousel */}
-                        <div className="relative">
-                          <AnimatePresence mode="wait">
-                            <motion.div
-                              key={currentFlashcardIndex}
-                              initial={{ opacity: 0, rotateY: 90 }}
-                              animate={{ opacity: 1, rotateY: 0 }}
-                              exit={{ opacity: 0, rotateY: -90 }}
-                              transition={{ duration: 0.5 }}
-                              className="min-h-[300px]"
-                            >
-                              <Card
-                                className="cursor-pointer hover:shadow-2xl transition-shadow border-2 border-blue-500/30 bg-gradient-to-br from-blue-500/10 to-purple-600/10"
-                                onClick={() => setShowFlashcardBack(!showFlashcardBack)}
-                              >
-                                <CardHeader>
-                                  <div className="flex items-start justify-between">
-                                    <div>
-                                      <CardTitle className="gradient-text mb-2">
-                                        {message.flashcards[currentFlashcardIndex].title}
-                                      </CardTitle>
-                                      <div className="flex gap-2">
-                                        {message.flashcards[currentFlashcardIndex].tags.map((tag) => (
-                                          <Badge key={tag} variant="secondary" className="text-xs">
-                                            {tag}
-                                          </Badge>
-                                        ))}
-                                      </div>
-                                    </div>
-                                    <Badge
-                                      variant={
-                                        message.flashcards[currentFlashcardIndex].difficulty === 'easy'
-                                          ? 'default'
-                                          : message.flashcards[currentFlashcardIndex].difficulty === 'medium'
-                                            ? 'secondary'
-                                            : 'destructive'
-                                      }
-                                    >
-                                      {message.flashcards[currentFlashcardIndex].difficulty}
-                                    </Badge>
-                                  </div>
-                                </CardHeader>
-                                <CardContent className="space-y-4">
-                                  {!showFlashcardBack ? (
-                                    <div>
-                                      <p className="text-lg mb-4 text-foreground">
-                                        {message.flashcards[currentFlashcardIndex].front}
-                                      </p>
-                                      <p className="text-sm text-muted-foreground text-center">
-                                        Click to reveal answer
-                                      </p>
-                                    </div>
-                                  ) : (
-                                    <div className="space-y-4">
-                                      <div className="p-4 rounded-xl bg-card border border-border">
-                                        <p className="text-lg text-foreground">
-                                          {message.flashcards[currentFlashcardIndex].back}
-                                        </p>
-                                      </div>
-
-                                      {message.flashcards[currentFlashcardIndex].example && (
-                                        <div className="p-4 rounded-xl bg-blue-500/10 border border-blue-500/20">
-                                          <p className="text-sm text-muted-foreground mb-1">💡 Example:</p>
-                                          <p className="text-foreground">{message.flashcards[currentFlashcardIndex].example}</p>
-                                        </div>
-                                      )}
-
-                                      {message.flashcards[currentFlashcardIndex].memoryTip && (
-                                        <div className="p-4 rounded-xl bg-purple-500/10 border border-purple-500/20">
-                                          <p className="text-sm text-muted-foreground mb-1">🧠 Memory Tip:</p>
-                                          <p className="text-foreground">{message.flashcards[currentFlashcardIndex].memoryTip}</p>
-                                        </div>
-                                      )}
-
-                                      {message.flashcards[currentFlashcardIndex].examShortcut && (
-                                        <div className="p-4 rounded-xl bg-teal-500/10 border border-teal-500/20">
-                                          <p className="text-sm text-muted-foreground mb-1">⚡ Exam Shortcut:</p>
-                                          <p className="font-mono text-foreground">
-                                            {message.flashcards[currentFlashcardIndex].examShortcut}
-                                          </p>
-                                        </div>
-                                      )}
-
-                                      <div className="flex gap-3 pt-4">
-                                        <Button
-                                          className="flex-1 bg-green-500/20 hover:bg-green-500/30 border border-green-500/30 text-foreground"
-                                          onClick={(e) => {
-                                            e.stopPropagation();
-                                            handleFlashcardKnown(message.flashcards![currentFlashcardIndex].id, true);
-                                          }}
-                                        >
-                                          <ThumbsUp className="w-4 h-4 mr-2" />
-                                          I Know It
-                                        </Button>
-                                        <Button
-                                          variant="outline"
-                                          className="flex-1"
-                                          onClick={(e) => {
-                                            e.stopPropagation();
-                                            handleFlashcardKnown(message.flashcards![currentFlashcardIndex].id, false);
-                                          }}
-                                        >
-                                          <ThumbsDown className="w-4 h-4 mr-2" />
-                                          Review Again
-                                        </Button>
-                                      </div>
-                                    </div>
-                                  )}
-                                </CardContent>
-                              </Card>
-                            </motion.div>
-                          </AnimatePresence>
-
-                          {/* Navigation Controls */}
-                          <div className="flex items-center justify-between mt-4">
-                            <Button
-                              variant="outline"
-                              size="icon"
-                              disabled={currentFlashcardIndex === 0}
-                              onClick={() => {
-                                setCurrentFlashcardIndex((prev) => prev - 1);
-                                setShowFlashcardBack(false);
-                              }}
-                            >
-                              <ChevronLeft className="w-5 h-5" />
-                            </Button>
-
-                            <span className="text-sm text-muted-foreground">
-                              {currentFlashcardIndex + 1} / {message.flashcards.length}
-                            </span>
-
-                            <Button
-                              variant="outline"
-                              size="icon"
-                              disabled={currentFlashcardIndex === message.flashcards.length - 1}
-                              onClick={() => {
-                                setCurrentFlashcardIndex((prev) => prev + 1);
-                                setShowFlashcardBack(false);
-                              }}
-                            >
-                              <ChevronRight className="w-5 h-5" />
-                            </Button>
-                          </div>
-                        </div>
-                      </div>
-                    </div>
-                  )}
-
-                  {/* Quiz Messages */}
-                  {message.type === 'quiz' && message.quizData && (
-                    <div className="w-full rounded-2xl px-6 py-4 bg-white/95 dark:bg-[#1C1F2A]/95 backdrop-blur-md shadow-lg">
-                      <p className="mb-6 text-foreground">{message.content}</p>
-
-                      <div className="space-y-6">
-                        {message.quizData.map((question, qIndex) => (
-                          <motion.div
-                            key={question.id}
-                            initial={{ opacity: 0, x: -20 }}
-                            animate={{ opacity: 1, x: 0 }}
-                            transition={{ delay: qIndex * 0.1 }}
-                            className="p-6 rounded-xl bg-card border border-border"
-                          >
-                            <p className="mb-4 text-foreground">
-                              <span className="text-blue-400 mr-2">Q{qIndex + 1}.</span>
-                              {question.question}
-                            </p>
-
-                            <div className="space-y-2">
-                              {question.options.map((option, oIndex) => (
-                                <Button
-                                  key={oIndex}
-                                  variant="outline"
-                                  className={`w-full justify-start text-left ${quizAnswers[question.id] === oIndex
-                                      ? 'border-blue-500 bg-blue-500/10'
-                                      : ''
-                                    }`}
-                                  onClick={() => {
-                                    setQuizAnswers((prev) => ({
-                                      ...prev,
-                                      [question.id]: oIndex,
-                                    }));
-                                  }}
-                                >
-                                  <span className="mr-3 text-muted-foreground">{String.fromCharCode(65 + oIndex)}.</span>
-                                  {option}
-                                  {quizAnswers[question.id] === oIndex && (
-                                    <Check className="w-4 h-4 ml-auto text-blue-400" />
-                                  )}
-                                </Button>
-                              ))}
-                            </div>
-
-                            {quizAnswers[question.id] !== undefined && (
-                              <motion.div
-                                initial={{ opacity: 0, height: 0 }}
-                                animate={{ opacity: 1, height: 'auto' }}
-                                className="mt-4 p-4 rounded-lg bg-teal-500/10 border border-teal-500/20"
-                              >
-                                <p className="text-sm text-foreground">
-                                  <span className="text-teal-400 mr-2">💡</span>
-                                  {question.explanation}
-                                </p>
-                              </motion.div>
-                            )}
-                          </motion.div>
-                        ))}
-
-                        {Object.keys(quizAnswers).length === message.quizData.length && (
-                          <motion.div
-                            initial={{ opacity: 0, y: 20 }}
-                            animate={{ opacity: 1, y: 0 }}
-                            className="text-center p-6 rounded-xl bg-gradient-to-r from-green-500/20 to-teal-500/20 border border-green-500/30"
-                          >
-                            <p className="text-2xl mb-2 text-foreground">
-                              🎉 Quiz Complete!
-                            </p>
-                            <p className="text-muted-foreground">
-                              Score: {Object.values(quizAnswers).filter((answer, idx) => answer === message.quizData![idx].correctAnswer).length} / {message.quizData.length}
-                            </p>
-                          </motion.div>
-                        )}
-                      </div>
-                    </div>
-                  )}
-                </motion.div>
-              ))}
-            </AnimatePresence>
-
-            {isProcessing && (
-              <motion.div
-                initial={{ opacity: 0, y: 10 }}
-                animate={{ opacity: 1, y: 0 }}
-                exit={{ opacity: 0 }}
-                className="flex justify-start"
-              >
-                <div className="rounded-3xl px-6 py-4 bg-white/95 dark:bg-[#1C1F2A]/95 backdrop-blur-md shadow-lg">
-                  <div className="flex items-center gap-4">
-                    <div className="w-8 h-8 rounded-full bg-gradient-to-br from-blue-500 to-purple-600 flex items-center justify-center flex-shrink-0">
-                      <GraduationCap className="w-5 h-5 text-white" />
-                    </div>
-                    <div className="flex items-center gap-1">
-                      <div className="w-2 h-2 bg-blue-400 rounded-full typing-dot"></div>
-                      <div className="w-2 h-2 bg-purple-400 rounded-full typing-dot"></div>
-                      <div className="w-2 h-2 bg-blue-400 rounded-full typing-dot"></div>
-                    </div>
-                    <span className="text-sm text-muted-foreground">Tutor is thinking...</span>
-                  </div>
-                </div>
-              </motion.div>
-            )}
-
-            {uploadProgress > 0 && uploadProgress < 100 && (
-              <motion.div
-                initial={{ opacity: 0, y: 20 }}
-                animate={{ opacity: 1, y: 0 }}
-                className="rounded-2xl p-6 bg-white/95 dark:bg-[#1C1F2A]/95 backdrop-blur-md shadow-lg"
-              >
-                <div className="flex items-center gap-3 mb-3">
-                  <Upload className="w-5 h-5 text-blue-400" />
-                  <p className="text-foreground">Uploading and processing document...</p>
-                </div>
-                <Progress value={uploadProgress} className="h-2" />
-              </motion.div>
-            )}
-
-            <div ref={chatEndRef} />
-          </div>
-        </div>
-
-        {/* Bottom Input Bar - Always Visible */}
-        <div className="border-t border-border p-4 flex-shrink-0 bg-white/98 dark:bg-[#10121A]/98 backdrop-blur-xl shadow-[0_-4px_20px_rgba(0,0,0,0.3)]">
-          <div className="max-w-5xl mx-auto">
-            {/* Active Persona Tag & Shortcuts */}
-
-
-
-            {pendingFile && (
-              <div className="mb-3 flex items-center justify-between gap-3 rounded-lg border border-blue-500/30 bg-blue-500/10 px-3 py-2">
-                <div className="flex min-w-0 items-center gap-2">
-                  <FileText className="h-4 w-4 flex-shrink-0 text-blue-400" />
-                  <span className="truncate text-sm text-foreground">{pendingFile.name}</span>
-                </div>
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  className="h-7 w-7 flex-shrink-0 rounded-full"
-                  onClick={() => {
-                    setPendingFile(null);
-                    if (fileInputRef.current) {
-                      fileInputRef.current.value = '';
-                    }
-                  }}
-                >
-                  <X className="h-4 w-4" />
-                </Button>
-              </div>
-            )}
-
-            <div className="flex items-center gap-3">
-              <Button
-                variant="outline"
-                size="icon"
-                className="rounded-full flex-shrink-0"
-                onClick={() => setUploadModalOpen(true)}
-              >
-                <Plus className="w-5 h-5" />
-              </Button>
-
-              <div className="flex-1 relative">
-                <Input
-                  value={inputValue}
-                  onChange={(e) => setInputValue(e.target.value)}
-                  onKeyPress={(e) => {
-                    if (e.key === 'Enter' && !e.shiftKey) {
-                      e.preventDefault();
-                      handleSendMessage();
-                    }
-                  }}
-                  placeholder={`Ask ${getCurrentPersona().name} anything...`}
-                  className="rounded-full pr-24  border-2 border-blue-500/30 focus:border-blue-500/50 glow-blue-purple"
-                />
-              </div>
-
-              <Button
-                size="icon"
-                className="rounded-full flex-shrink-0 bg-gradient-to-r from-blue-500 to-purple-600 hover:from-blue-600 hover:to-purple-700"
-                onClick={handleSendMessage}
-                disabled={!inputValue.trim() && !pendingFile}
-              >
-                <Send className="w-5 h-5" />
-              </Button>
-            </div>
-          </div>
-        </div>
+        <ChatComposer
+          inputValue={inputValue}
+          onInputValueChange={setInputValue}
+          onSendMessage={() => void handleSendMessage()}
+          onOpenUploadModal={() => setUploadModalOpen(true)}
+          pendingFile={pendingFile}
+          onClearPendingFile={() => {
+            setPendingFile(null);
+            if (fileInputRef.current) {
+              fileInputRef.current.value = '';
+            }
+          }}
+          selectedModel={selectedModel}
+          onSelectedModelChange={setSelectedModel}
+          models={AI_MODELS}
+          activeModelDescription={activeModelDetails.description}
+          isThreadModelLocked={isThreadModelLocked}
+          onStartNewThread={startNewThread}
+        />
       </div>
 
-      {/* Right Sidebar - Desktop */}
-      <AnimatePresence>
-        {rightSidebarOpen && (
-          <motion.div
-            initial={{ x: 300, opacity: 0 }}
-            animate={{ x: 0, opacity: 1 }}
-            exit={{ x: 300, opacity: 0 }}
-            transition={{ duration: 0.3, ease: 'easeInOut' }}
-            className="hidden lg:flex w-80 border-l border-border p-6 flex-col gap-6 h-screen overflow-y-auto bg-white/98 dark:bg-[#10121A]/98 backdrop-blur-xl fixed lg:relative z-30 right-0"
-          >
-            {/* Close Button */}
-            <div className="flex items-center justify-between mb-2">
-              <h3 className="text-lg">Session Info</h3>
-              <Button
-                variant="ghost"
-                size="icon"
-                onClick={() => setRightSidebarOpen(false)}
-                className="hover:bg-accent"
-              >
-                <X className="w-5 h-5" />
-              </Button>
-            </div>
+      <ChatSidePanel
+        open={rightSidebarOpen}
+        onOpenChange={setRightSidebarOpen}
+        uploadedDocs={uploadedDocs}
+        flashcardStats={flashcardStats}
+        cardsToReview={cardsToReview}
+        focusScore={contextFocusScore}
+        isStrictMode={isStrictMode}
+        distractionCount={distractionCount}
+        focusDriftCount={focusDriftCount}
+        onToggleStrictMode={handleToggleStrictMode}
+        onCreateFlashcardsFromChat={() => void handleCreateFlashcardsFromChat()}
+        onCreateQuizFromChat={() => void handleCreateQuizFromChat()}
+        onExportDeck={handleExportDeck}
+        onShareDeck={handleShareDeck}
+      />
 
-            {/* Focus Meter */}
-            <Card>
-              <CardHeader>
-                <CardTitle className="text-sm flex items-center gap-2">
-                  <Eye className="w-4 h-4 text-teal-400" />
-                  Focus Meter
-                </CardTitle>
-              </CardHeader>
-              <CardContent>
-                <div className="relative w-32 h-32 mx-auto">
-                  <svg className="w-full h-full -rotate-90">
-                    <circle
-                      cx="64"
-                      cy="64"
-                      r="56"
-                      stroke="currentColor"
-                      strokeWidth="8"
-                      fill="none"
-                      className="text-muted"
-                    />
-                    <motion.circle
-                      cx="64"
-                      cy="64"
-                      r="56"
-                      stroke="url(#gradient)"
-                      strokeWidth="8"
-                      fill="none"
-                      strokeDasharray={`${2 * Math.PI * 56}`}
-                      strokeDashoffset={`${2 * Math.PI * 56 * (1 - contextFocusScore / 100)}`}
-                      strokeLinecap="round"
-                      initial={{ strokeDashoffset: 2 * Math.PI * 56 }}
-                      animate={{ strokeDashoffset: 2 * Math.PI * 56 * (1 - contextFocusScore / 100) }}
-                      transition={{ duration: 1 }}
-                    />
-                    <defs>
-                      <linearGradient id="gradient" x1="0%" y1="0%" x2="100%" y2="100%">
-                        <stop offset="0%" stopColor="#3b82f6" />
-                        <stop offset="100%" stopColor="#8b5cf6" />
-                      </linearGradient>
-                    </defs>
-                  </svg>
-                  <div className="absolute inset-0 flex flex-col items-center justify-center">
-                    <p className="text-3xl gradient-text">{contextFocusScore}%</p>
-                    <p className="text-xs text-secondary">Attention</p>
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
-
-            {/* Uploaded Documents */}
-            <Card className="flex-1">
-              <CardHeader>
-                <CardTitle className="text-sm flex items-center gap-2">
-                  <FileText className="w-4 h-4" />
-                  Documents ({uploadedDocs.length})
-                </CardTitle>
-              </CardHeader>
-              <CardContent>
-                <div className="max-h-48 overflow-y-auto space-y-2">
-                  {uploadedDocs.length === 0 ? (
-                    <p className="text-sm text-secondary text-center py-8">
-                      No documents uploaded yet
-                    </p>
-                  ) : (
-                    uploadedDocs.map((doc) => (
-                      <div
-                        key={doc.id}
-                        className="p-3 rounded-lg bg-card border border-border hover:border-blue-500/50 transition-colors cursor-pointer"
-                      >
-                        <div className="flex items-center gap-2">
-                          {doc.type === 'pdf' && <FileText className="w-4 h-4 text-red-400" />}
-                          {doc.type === 'Word' && <FileText className="w-4 h-4 text-blue-400" />}
-                          {doc.type === 'ppt' && <Presentation className="w-4 h-4 text-orange-400" />}
-                          {doc.type === 'image' && <Camera className="w-4 h-4 text-cyan-400" />}
-                          <div className="flex-1 min-w-0">
-                            <p className="text-sm truncate">{doc.name}</p>
-                            <p className="text-xs text-secondary">
-                              {doc.uploadDate.toLocaleDateString()}
-                            </p>
-                          </div>
-                          {doc.processed && (
-                            <Check className="w-4 h-4 text-green-400 flex-shrink-0" />
-                          )}
-                        </div>
-                      </div>
-                    ))
-                  )}
-                </div>
-              </CardContent>
-            </Card>
-
-            {/* Quick Actions */}
-            <div className="space-y-2">
-              <Button
-                className="w-full h-12 justify-start gap-2 hover:bg-gradient-to-r hover:from-blue-500/10 hover:to-purple-500/10 transition-all"
-                variant="outline"
-                onClick={() => {
-                  void handleCreateFlashcardsFromChat();
-                  setRightSidebarOpen(false);
-                }}
-              >
-                <Layers className="w-4 h-4" />
-                Create Flashcards from Chat
-              </Button>
-
-              <Button
-                className="w-full h-12 justify-start gap-2 hover:bg-gradient-to-r hover:from-blue-500/10 hover:to-purple-500/10 transition-all"
-                variant="outline"
-                onClick={() => {
-                  void handleCreateQuizFromChat();
-                  setRightSidebarOpen(false);
-                }}
-              >
-                <ListChecks className="w-4 h-4" />
-                Create Quiz from Chat
-              </Button>
-
-              <Button
-                className="w-full h-12 justify-start gap-2 hover:bg-gradient-to-r hover:from-blue-500/10 hover:to-purple-500/10 transition-all"
-                variant="outline"
-                onClick={handleExportDeck}
-              >
-                <Download className="w-4 h-4" />
-                Export Deck
-              </Button>
-
-              <Button
-                className="w-full h-12 justify-start gap-2 hover:bg-gradient-to-r hover:from-blue-500/10 hover:to-purple-500/10 transition-all"
-                variant="outline"
-                onClick={handleShareDeck}
-              >
-                <Share2 className="w-4 h-4" />
-                Share Deck
-              </Button>
-            </div>
-
-            {/* Session Summary */}
-            <Card>
-              <CardHeader>
-                <CardTitle className="text-sm">Session Summary</CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-3">
-                <div className="flex justify-between text-sm">
-                  <span className="text-secondary">Total Cards:</span>
-                  <span>12</span>
-                </div>
-                <div className="flex justify-between text-sm">
-                  <span className="text-secondary">Known:</span>
-                  <span className="text-green-400">8</span>
-                </div>
-                <div className="flex justify-between text-sm">
-                  <span className="text-secondary">To Review:</span>
-                  <span className="text-yellow-400">4</span>
-                </div>
-                <div className="flex justify-between text-sm">
-                  <span className="text-secondary">Focus Score:</span>
-                  <span className="gradient-text">{contextFocusScore}%</span>
-                </div>
-              </CardContent>
-            </Card>
-          </motion.div>
-        )}
-      </AnimatePresence>
-
-      {/* Right Sidebar - Mobile Sheet */}
-      <Sheet open={rightSidebarOpen} onOpenChange={setRightSidebarOpen}>
-        <SheetContent side="right" className="w-80 p-6 overflow-y-auto">
-          <SheetHeader>
-            <SheetTitle className="flex items-center gap-2">
-              <BarChart2 className="w-5 h-5 text-blue-500" />
-              Session Info
-            </SheetTitle>
-          </SheetHeader>
-
-          <div className="mt-6 space-y-6">
-            {/* Focus Meter */}
-            <Card>
-              <CardHeader>
-                <CardTitle className="text-sm flex items-center gap-2">
-                  <Eye className="w-4 h-4 text-teal-400" />
-                  Focus Meter
-                </CardTitle>
-              </CardHeader>
-              <CardContent>
-                <div className="relative w-32 h-32 mx-auto">
-                  <svg className="w-full h-full -rotate-90">
-                    <circle
-                      cx="64"
-                      cy="64"
-                      r="56"
-                      stroke="currentColor"
-                      strokeWidth="8"
-                      fill="none"
-                      className="text-muted"
-                    />
-                    <motion.circle
-                      cx="64"
-                      cy="64"
-                      r="56"
-                      stroke="url(#gradient-mobile)"
-                      strokeWidth="8"
-                      fill="none"
-                      strokeDasharray={`${2 * Math.PI * 56}`}
-                      strokeDashoffset={`${2 * Math.PI * 56 * (1 - contextFocusScore / 100)}`}
-                      strokeLinecap="round"
-                      initial={{ strokeDashoffset: 2 * Math.PI * 56 }}
-                      animate={{ strokeDashoffset: 2 * Math.PI * 56 * (1 - contextFocusScore / 100) }}
-                      transition={{ duration: 1 }}
-                    />
-                    <defs>
-                      <linearGradient id="gradient-mobile" x1="0%" y1="0%" x2="100%" y2="100%">
-                        <stop offset="0%" stopColor="#3b82f6" />
-                        <stop offset="100%" stopColor="#8b5cf6" />
-                      </linearGradient>
-                    </defs>
-                  </svg>
-                  <div className="absolute inset-0 flex flex-col items-center justify-center">
-                    <p className="text-3xl gradient-text">{contextFocusScore}%</p>
-                    <p className="text-xs text-secondary">Attention</p>
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
+      <UploadModal
+        open={uploadModalOpen}
+        onOpenChange={setUploadModalOpen}
+        fileInputRef={fileInputRef}
+        fileAccept={fileAccept}
+        onFileUpload={handleFileUpload}
+        onOpenFilePicker={openFilePicker}
+      />
 
             {/* ── STRICT MODE ── */}
-            <Card className={`transition-all duration-300 ${isStrictMode
-                ? 'border-amber-500/40 bg-amber-500/5'
-                : 'border-border'
-              }`}>
-              <CardHeader className="pb-3">
-                <CardTitle className="text-sm flex items-center gap-2">
-                  <ShieldAlert className={`w-4 h-4 ${isStrictMode ? 'text-amber-400' : 'text-slate-400'}`} />
-                  Strict Mode
-                  <span className={`ml-auto text-xs font-semibold px-2 py-0.5 rounded-full ${isStrictMode
-                      ? 'bg-amber-500/20 text-amber-400'
-                      : 'bg-slate-500/20 text-slate-400'
-                    }`}>
-                    {isStrictMode ? 'ON' : 'OFF'}
-                  </span>
-                </CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-3">
-                <p className="text-xs text-secondary leading-relaxed">
-                  {isStrictMode
-                    ? 'Distractions are blocked. Stay locked in and finish your session.'
-                    : 'Enable to block distractions and enforce deep focus during your session.'}
-                </p>
-                {isStrictMode && (
-                  <p className="text-xs text-amber-400">
-                    Tab distractions blocked: {distractionCount}
-                  </p>
-                )}
-                <p className="text-xs text-secondary">
-                  Focus drifts detected: {focusDriftCount}
-                </p>
-                <Button
-                  className={`w-full h-10 gap-2 font-medium transition-all ${isStrictMode
-                      ? 'bg-gradient-to-r from-amber-500/20 to-red-500/20 border-amber-500/40 hover:from-amber-500/30 hover:to-red-500/30 text-amber-400'
-                      : 'bg-gradient-to-r from-slate-500/10 to-slate-400/10 border-slate-400/30 hover:from-slate-500/20 hover:to-slate-400/20 text-slate-400'
-                    }`}
-                  variant="outline"
-                  onClick={handleToggleStrictMode}
-                >
-                  <ShieldAlert className="w-4 h-4" />
-                  {isStrictMode ? 'Disable Strict Mode' : 'Enable Strict Mode'}
-                </Button>
-              </CardContent>
-            </Card>
             {/* ── END STRICT MODE ── */}
-
-            {/* Quick Actions */}
-            <div className="space-y-2">
-              <Button
-                className="w-full h-12 justify-start gap-2 hover:bg-gradient-to-r hover:from-blue-500/10 hover:to-purple-500/10 transition-all"
-                variant="outline"
-                onClick={() => {
-                  void handleCreateFlashcardsFromChat();
-                  setRightSidebarOpen(false);
-                }}
-              >
-                <Layers className="w-4 h-4" />
-                Create Flashcards from Chat
-              </Button>
-
-              <Button
-                className="w-full h-12 justify-start gap-2 hover:bg-gradient-to-r hover:from-blue-500/10 hover:to-purple-500/10 transition-all"
-                variant="outline"
-                onClick={() => {
-                  void handleCreateQuizFromChat();
-                  setRightSidebarOpen(false);
-                }}
-              >
-                <ListChecks className="w-4 h-4" />
-                Create Quiz from Chat
-              </Button>
-
-            </div>
-
-            {/* Session Summary */}
-            <Card>
-              <CardHeader>
-                <CardTitle className="text-sm">Session Summary</CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-3">
-                <div className="flex justify-between text-sm">
-                  <span className="text-secondary">Total Cards:</span>
-                  <span>12</span>
-                </div>
-                <div className="flex justify-between text-sm">
-                  <span className="text-secondary">Known:</span>
-                  <span className="text-green-400">8</span>
-                </div>
-                <div className="flex justify-between text-sm">
-                  <span className="text-secondary">To Review:</span>
-                  <span className="text-yellow-400">4</span>
-                </div>
-                <div className="flex justify-between text-sm">
-                  <span className="text-secondary">Focus Score:</span>
-                  <span className="gradient-text">{contextFocusScore}%</span>
-                </div>
-              </CardContent>
-            </Card>
-
-            <div className="text-xs text-secondary text-center pt-4">
-              Documents: {uploadedDocs.length}
-            </div>
-          </div>
-        </SheetContent>
-      </Sheet>
-
-      {/* File Upload Modal */}
-      <Dialog open={uploadModalOpen} onOpenChange={setUploadModalOpen}>
-        <DialogContent className="">
-          <DialogHeader>
-            <DialogTitle>Upload Document</DialogTitle>
-            <DialogDescription>
-              Upload PDFs, PowerPoints, Ms Word, or text files for AI analysis and flashcard generation.
-            </DialogDescription>
-          </DialogHeader>
-          <div className="space-y-4">
-
-            <input
-              ref={fileInputRef}
-              type="file"
-              accept={fileAccept}
-              onChange={handleFileUpload}
-              className="hidden"
-            />
-
-            <div className="grid grid-cols-2 gap-3">
-              <Button
-                variant="outline"
-                className="h-24 flex flex-col gap-2"
-                onClick={() => openFilePicker('.pdf')}
-              >
-                <FileText className="w-8 h-8 text-red-400" />
-                <span className="text-sm">PDF</span>
-              </Button>
-
-              <Button
-                variant="outline"
-                className="h-24 flex flex-col gap-2"
-                onClick={() => openFilePicker('.ppt,.pptx')}
-              >
-                <Presentation className="w-8 h-8 text-orange-400" />
-                <span className="text-sm">PowerPoint</span>
-              </Button>
-
-              <Button
-                variant="outline"
-                className="h-24 flex flex-col gap-2"
-                onClick={() => openFilePicker('.doc,.docx')}
-              >
-                <FileText className="w-8 h-8 text-blue-400" />
-                <span className="text-sm">Ms Word</span>
-              </Button>
-
-              <Button
-                variant="outline"
-                className="h-24 flex flex-col gap-2"
-                onClick={() => openFilePicker('.txt')}
-              >
-                <FileText className="w-8 h-8 text-green-400" />
-                <span className="text-sm">Text File</span>
-              </Button>
-            </div>
-          </div>
-        </DialogContent>
-      </Dialog>
 
       {false && (
         <Dialog open={false} onOpenChange={() => undefined}>

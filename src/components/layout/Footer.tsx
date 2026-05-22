@@ -1,5 +1,5 @@
 import { motion } from 'motion/react';
-import { Sparkles, Linkedin, Twitter, Youtube } from 'lucide-react';
+import { ArrowUpRight, Linkedin, Sparkles, Twitter, Youtube } from 'lucide-react';
 
 interface FooterProps {
   onNavigate: (page: string) => void;
@@ -9,13 +9,17 @@ export function Footer({ onNavigate }: FooterProps) {
   void onNavigate;
 
   const placeholderUrl = 'https://www.google.com/';
-  const quickLinks = [
+  const websiteLinks = [
     { name: 'Home', href: placeholderUrl },
     { name: 'Our Science', href: placeholderUrl },
     { name: 'About Us', href: placeholderUrl },
     { name: 'Contact', href: placeholderUrl },
   ];
-
+  const resourceLinks = [
+    { name: 'Student Dashboard', href: placeholderUrl },
+    { name: 'Focus Method', href: placeholderUrl },
+    { name: 'Support', href: placeholderUrl },
+  ];
   const socialLinks = [
     { icon: Linkedin, href: placeholderUrl, label: 'LinkedIn' },
     { icon: Twitter, href: placeholderUrl, label: 'Twitter' },
@@ -23,43 +27,58 @@ export function Footer({ onNavigate }: FooterProps) {
   ];
 
   return (
-    <footer className="relative bg-card border-t border-border">
-      {/* Gradient Top Border */}
-      <div className="absolute top-0 left-0 right-0 h-px bg-gradient-to-r from-transparent via-blue-500 to-transparent opacity-30" />
-      
-      <div className="max-w-7xl mx-auto px-6 lg:px-20 py-12">
-        <div className="grid md:grid-cols-3 gap-8 mb-8">
-          {/* Left - Logo & Tagline */}
-          <div>
-            <div className="flex items-center gap-2 mb-4">
-              <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-blue-500 to-purple-600 flex items-center justify-center">
-                <Sparkles className="w-5 h-5 text-white" />
+    <footer className="relative border-t border-border bg-card">
+      <div className="absolute left-0 right-0 top-0 h-px bg-gradient-to-r from-transparent via-blue-500 to-transparent opacity-30" />
+
+      <div className="mx-auto max-w-6xl px-5 pb-4 pt-8 sm:px-6 lg:px-12 xl:px-16">
+        <div className="grid gap-10 sm:grid-cols-2 lg:grid-cols-4">
+          <div className="max-w-sm sm:col-span-2 lg:col-span-1">
+            <div className="mb-4 flex items-center gap-2">
+              <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-gradient-to-br from-blue-500 to-purple-600">
+                <Sparkles className="h-5 w-5 text-white" />
               </div>
-              <span className="font-bold text-xl text-foreground">FocusSpark</span>
+              <span className="text-xl font-bold text-foreground">FocusSpark</span>
             </div>
-            <p className="text-muted-foreground">Stay Focused. Learn Smarter.</p>
+            <p className="text-sm leading-6 text-muted-foreground">
+              Extension workspace for focused studying, AI help, practice, and review.
+            </p>
           </div>
 
-          {/* Center - Quick Links */}
           <div>
-            <h4 className="mb-4 text-foreground">Quick Links</h4>
+            <h4 className="mb-3 text-sm font-semibold text-foreground">Main Website</h4>
             <div className="flex flex-col gap-2">
-              {quickLinks.map((link) => (
+              {websiteLinks.map((link) => (
                 <button
                   key={link.name}
                   onClick={() => window.open(link.href, '_blank', 'noopener,noreferrer')}
-                  className="text-muted-foreground hover:text-foreground transition-colors text-left"
+                  className="inline-flex w-fit items-center gap-1 text-left text-sm text-muted-foreground transition-colors hover:text-foreground"
                 >
                   {link.name}
+                  <ArrowUpRight className="h-3 w-3" />
                 </button>
               ))}
             </div>
           </div>
 
-          {/* Right - Social Icons */}
           <div>
-            <h4 className="mb-4 text-foreground">Connect With Us</h4>
-            <div className="flex gap-4">
+            <h4 className="mb-3 text-sm font-semibold text-foreground">Resources</h4>
+            <div className="flex flex-col gap-2">
+              {resourceLinks.map((link) => (
+                <button
+                  key={link.name}
+                  onClick={() => window.open(link.href, '_blank', 'noopener,noreferrer')}
+                  className="inline-flex w-fit items-center gap-1 text-left text-sm text-muted-foreground transition-colors hover:text-foreground"
+                >
+                  {link.name}
+                  <ArrowUpRight className="h-3 w-3" />
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <div>
+            <h4 className="mb-3 text-sm font-semibold text-foreground">Social</h4>
+            <div className="flex gap-3">
               {socialLinks.map((social) => {
                 const Icon = social.icon;
                 return (
@@ -69,11 +88,11 @@ export function Footer({ onNavigate }: FooterProps) {
                     target="_blank"
                     rel="noopener noreferrer"
                     aria-label={social.label}
-                    className="w-10 h-10 rounded-full bg-card border border-border flex items-center justify-center hover:border-blue-500 transition-all"
+                    className="flex h-9 w-9 items-center justify-center rounded-full border border-border bg-background transition-all hover:border-blue-500"
                     whileHover={{ scale: 1.1 }}
                     whileTap={{ scale: 0.95 }}
                   >
-                    <Icon className="w-5 h-5" />
+                    <Icon className="h-4 w-4" />
                   </motion.a>
                 );
               })}
@@ -81,9 +100,8 @@ export function Footer({ onNavigate }: FooterProps) {
           </div>
         </div>
 
-        {/* Bottom */}
-        <div className="border-t border-border pt-6 text-center text-muted-foreground text-sm">
-          © 2025 FocusSpark. All Rights Reserved.
+        <div className="mt-6 flex min-h-6 items-center justify-center border-t border-border pt-3 text-center text-sm text-muted-foreground">
+          © 2026 FocusSpark. All rights reserved.
         </div>
       </div>
     </footer>

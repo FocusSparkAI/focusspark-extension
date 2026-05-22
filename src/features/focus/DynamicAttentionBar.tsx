@@ -13,6 +13,7 @@ type StateType = {
   label: string;
   icon: any;
   color: string;
+  darkColor: string;
   borderColor: string;
   glowColor: string;
 };
@@ -36,27 +37,30 @@ export function DynamicAttentionBar({ className = '' }: DynamicAttentionBarProps
           type: 'happy',
           label: 'Focused',
           icon: Smile,
-          color: 'text-green-400',
-          borderColor: 'border-green-500/50',
-          glowColor: 'rgba(16, 185, 129, 0.5)',
+          color: '#059669',
+          darkColor: '#6EE7B7',
+          borderColor: 'border-emerald-500/45 dark:border-emerald-300/45',
+          glowColor: 'rgba(16, 185, 129, 0.45)',
         };
       } else if (emotionalState === 'tired') {
         newState = {
           type: 'tired',
           label: 'Tired',
           icon: Meh,
-          color: 'text-amber-400',
-          borderColor: 'border-amber-500/50',
-          glowColor: 'rgba(245, 158, 11, 0.5)',
+          color: '#D97706',
+          darkColor: '#FCD34D',
+          borderColor: 'border-amber-500/45 dark:border-amber-300/45',
+          glowColor: 'rgba(245, 158, 11, 0.42)',
         };
       } else if (emotionalState === 'sad') {
         newState = {
           type: 'sad',
           label: 'Distracted',
           icon: Frown,
-          color: 'text-red-400',
-          borderColor: 'border-red-500/50',
-          glowColor: 'rgba(239, 68, 68, 0.5)',
+          color: '#E11D48',
+          darkColor: '#FDA4AF',
+          borderColor: 'border-rose-500/45 dark:border-rose-300/45',
+          glowColor: 'rgba(244, 63, 94, 0.42)',
         };
       } else {
         // Default to neutral
@@ -64,9 +68,10 @@ export function DynamicAttentionBar({ className = '' }: DynamicAttentionBarProps
           type: 'neutral',
           label: 'Neutral',
           icon: Meh,
-          color: 'text-amber-400',
-          borderColor: 'border-amber-500/50',
-          glowColor: 'rgba(245, 158, 11, 0.5)',
+          color: '#475569',
+          darkColor: '#CBD5E1',
+          borderColor: 'border-slate-400/45 dark:border-slate-300/35',
+          glowColor: 'rgba(148, 163, 184, 0.35)',
         };
       }
     } else {
@@ -76,16 +81,18 @@ export function DynamicAttentionBar({ className = '' }: DynamicAttentionBarProps
           type: 'focused',
           label: 'Focused',
           icon: UserCircle2,
-          color: 'text-blue-400',
-          borderColor: 'border-blue-500/40',
-          glowColor: 'rgba(59, 130, 246, 0.4)',
+          color: '#2563EB',
+          darkColor: '#93C5FD',
+          borderColor: 'border-blue-500/45 dark:border-blue-300/40',
+          glowColor: 'rgba(37, 99, 235, 0.38)',
         };
       } else if (focusScore >= 40) {
         newState = {
           type: 'idle',
           label: 'Idle',
           icon: UserCircle2,
-          color: 'text-gray-400',
+          color: '#64748B',
+          darkColor: '#CBD5E1',
           borderColor: 'border-gray-500/30',
           glowColor: 'rgba(156, 163, 175, 0.3)',
         };
@@ -94,7 +101,8 @@ export function DynamicAttentionBar({ className = '' }: DynamicAttentionBarProps
           type: 'attention',
           label: 'Attention Needed',
           icon: AlertCircle,
-          color: 'text-amber-400',
+          color: '#D97706',
+          darkColor: '#FCD34D',
           borderColor: 'border-amber-500/40',
           glowColor: 'rgba(245, 158, 11, 0.4)',
         };
@@ -108,6 +116,8 @@ export function DynamicAttentionBar({ className = '' }: DynamicAttentionBarProps
 
   const state = displayState;
   const Icon = state.icon;
+  const isDark = document.documentElement.classList.contains('dark');
+  const stateColor = isDark ? state.darkColor : state.color;
 
   return (
     <motion.div
@@ -173,9 +183,9 @@ export function DynamicAttentionBar({ className = '' }: DynamicAttentionBarProps
                     'linear-gradient(90deg, rgba(239, 68, 68, 0.2) 0%, rgba(220, 38, 38, 0.2) 100%)',
                   ]
                 : [
-                    'linear-gradient(90deg, rgba(245, 158, 11, 0.2) 0%, rgba(217, 119, 6, 0.2) 100%)',
-                    'linear-gradient(90deg, rgba(217, 119, 6, 0.2) 0%, rgba(251, 191, 36, 0.2) 100%)',
-                    'linear-gradient(90deg, rgba(245, 158, 11, 0.2) 0%, rgba(217, 119, 6, 0.2) 100%)',
+                    'linear-gradient(90deg, rgba(148, 163, 184, 0.16) 0%, rgba(203, 213, 225, 0.16) 100%)',
+                    'linear-gradient(90deg, rgba(203, 213, 225, 0.16) 0%, rgba(148, 163, 184, 0.16) 100%)',
+                    'linear-gradient(90deg, rgba(148, 163, 184, 0.16) 0%, rgba(203, 213, 225, 0.16) 100%)',
                   ],
           }}
           transition={{
@@ -232,7 +242,7 @@ export function DynamicAttentionBar({ className = '' }: DynamicAttentionBarProps
           }}
           className="flex-shrink-0"
         >
-          <Icon className={`w-5 h-5 sm:w-6 sm:h-6 ${state.color}`} />
+          <Icon className="w-5 h-5 sm:w-6 sm:h-6 drop-shadow-sm" strokeWidth={2.4} style={{ color: stateColor }} />
         </motion.div>
 
         {/* Center: Dynamic Status Text */}
@@ -247,7 +257,8 @@ export function DynamicAttentionBar({ className = '' }: DynamicAttentionBarProps
                 duration: 0.3,
                 ease: 'easeInOut'
               }}
-              className={`inline-block text-xs sm:text-sm font-medium whitespace-nowrap smooth-gradient-transition ${state.color}`}
+              className="inline-block text-xs sm:text-sm font-medium whitespace-nowrap smooth-gradient-transition"
+              style={{ color: stateColor }}
             >
               {state.label}
             </motion.span>
@@ -337,7 +348,7 @@ export function DynamicAttentionBar({ className = '' }: DynamicAttentionBarProps
               repeat: Infinity,
             }}
           >
-            <div className="w-2.5 h-2.5 sm:w-3 sm:h-3 rounded-full bg-amber-600" />
+            <div className="w-2.5 h-2.5 sm:w-3 sm:h-3 rounded-full bg-slate-400" />
           </motion.div>
         )}
 

@@ -8,13 +8,19 @@ export interface AIResponse {
   messageId?: number;
 }
 
-let tutorThreadIdPromise: Promise<number> | null = null;
+export type AIProvider = 'openai' | 'gemini';
 
-async function createTutorThread(): Promise<number> {
+let tutorThreadIdPromise: Promise<number> | null = null;
+let tutorThreadProvider: AIProvider | null = null;
+
+async function createTutorThread(provider: AIProvider): Promise<number> {
   const authHeaders = await getAuthHeaders();
   const response = await backendClient.post(
     BACKEND_ROUTES.chatThreads,
-    { title: 'FocusSpark AI Tutor' },
+    {
+      title: 'FocusSpark AI Tutor',
+      ai_provider: provider,
+    },
     { headers: authHeaders },
   );
 
@@ -26,10 +32,12 @@ async function createTutorThread(): Promise<number> {
   return threadId;
 }
 
-async function getTutorThreadId(): Promise<number> {
-  if (!tutorThreadIdPromise) {
-    tutorThreadIdPromise = createTutorThread().catch((error) => {
+async function getTutorThreadId(provider: AIProvider): Promise<number> {
+  if (!tutorThreadIdPromise || tutorThreadProvider !== provider) {
+    tutorThreadProvider = provider;
+    tutorThreadIdPromise = createTutorThread(provider).catch((error) => {
       tutorThreadIdPromise = null;
+      tutorThreadProvider = null;
       throw error;
     });
   }
@@ -37,17 +45,18 @@ async function getTutorThreadId(): Promise<number> {
   return tutorThreadIdPromise;
 }
 
-export async function getOrCreateTutorThreadId(): Promise<number> {
-  return getTutorThreadId();
+export async function getOrCreateTutorThreadId(provider: AIProvider = 'openai'): Promise<number> {
+  return getTutorThreadId(provider);
 }
 
 export function resetTutorThread(): void {
   tutorThreadIdPromise = null;
+  tutorThreadProvider = null;
 }
 
-async function sendChatPrompt(prompt: string): Promise<AIResponse> {
+async function sendChatPrompt(prompt: string, provider: AIProvider = 'openai'): Promise<AIResponse> {
   try {
-    const threadId = await getTutorThreadId();
+    const threadId = await getTutorThreadId(provider);
     const authHeaders = await getAuthHeaders();
     const response = await backendClient.post(
       BACKEND_ROUTES.chatMessages,
@@ -85,9 +94,10 @@ async function sendChatPrompt(prompt: string): Promise<AIResponse> {
 export async function generateAIResponse(
   prompt: string,
   context: string = '',
+  provider: AIProvider = 'openai',
 ): Promise<AIResponse> {
   const fullPrompt = context ? `${context}\n\n${prompt}` : prompt;
-  return sendChatPrompt(fullPrompt);
+  return sendChatPrompt(fullPrompt, provider);
 }
 
 export async function generateFlashcards(
@@ -97,7 +107,7 @@ export async function generateFlashcards(
   const authHeaders = await getAuthHeaders();
   const response = await backendClient.post(
     BACKEND_ROUTES.flashcardGenerate,
-    { topic: content, count },
+    { topic: content, card_count: count },
     { headers: authHeaders },
   );
 
@@ -111,10 +121,11 @@ export async function generateQuiz(
   content: string,
   questionCount: number = 5,
 ): Promise<AIResponse> {
+  void questionCount;
   const authHeaders = await getAuthHeaders();
   const response = await backendClient.post(
     BACKEND_ROUTES.quizGenerate,
-    { topic: content, questionCount },
+    { topic: content },
     { headers: authHeaders },
   );
 
@@ -145,22 +156,11 @@ export async function getStudySuggestions(
 export async function chatWithAITutor(
   message: string,
   conversationHistory: string = '',
-  persona: 'sensei' | 'tutor' | 'partner' | 'coach' = 'sensei',
+  provider: AIProvider = 'openai',
 ): Promise<AIResponse> {
-  const personas = {
-    sensei:
-      'You are Ultra Instinct Sensei, a mastery-focused AI tutor who provides clear, actionable guidance with real-world examples. Be direct, motivating, and focus on deep understanding.',
-    tutor:
-      'You are an AI Tutor, structured and academic. Provide thorough explanations with step-by-step breakdowns. Be patient and educational.',
-    partner:
-      'You are a Study Partner, friendly and collaborative. Make learning feel like a conversation between friends. Be encouraging and relatable.',
-    coach:
-      'You are a Focus Coach, motivational and action-oriented. Provide practical tips to boost productivity and maintain focus. Be energizing and supportive.',
-  } as const;
+  const context = `You are FocusSpark AI Tutor, an expert study coach. Provide clear, actionable guidance with real-world examples. Be direct, motivating, and focus on deep understanding.\n${conversationHistory ? `\nCONVERSATION HISTORY:\n${conversationHistory}\n` : ''}\nUSER: ${message}\n\nRespond naturally, helpfully, and in character. Keep responses concise but complete (2-4 paragraphs max).`;
 
-  const context = `${personas[persona]}\n\n${conversationHistory ? `CONVERSATION HISTORY:\n${conversationHistory}\n\n` : ''}USER: ${message}\n\nRespond naturally, helpfully, and in character. Keep responses concise but complete (2-4 paragraphs max).`;
-
-  return generateAIResponse('', context);
+  return generateAIResponse('', context, provider);
 }
 
 export async function explainConcept(

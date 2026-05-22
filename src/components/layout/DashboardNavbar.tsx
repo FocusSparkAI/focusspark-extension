@@ -43,7 +43,7 @@ export function DashboardNavbar({ onLogout }: DashboardNavbarProps) {
           </div>
           <div className="min-w-0">
             <h2 className="truncate text-2xl font-semibold leading-tight tracking-normal">Dashboard</h2>
-            <p className="truncate text-xs text-secondary">FocusSpark extension workspace</p>
+            <p className="truncate text-xs text-secondary">Overview</p>
           </div>
         </div>
 

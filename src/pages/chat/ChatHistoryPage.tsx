@@ -2,6 +2,8 @@ import { useState, useEffect } from 'react';
 import axios from 'axios';
 import { motion, AnimatePresence } from 'motion/react';
 import {
+  BadgeQuestionMark,
+  BookOpenCheck,
   FileText,
   Cpu,
   Leaf,
@@ -11,15 +13,12 @@ import {
   Home,
   MessageCircle,
   Check,
-  ThumbsUp,
-  ThumbsDown,
   X,
   UserRound,
 } from 'lucide-react';
 import { Button } from '../../components/ui/button';
 
 import { Badge } from '../../components/ui/badge';
-import { Card, CardHeader, CardTitle, CardContent } from '../../components/ui/card';
 import { toast } from 'sonner';
 import { BACKEND_ROUTES, buildBackendUrl } from '../../config/backend';
 import { getAuthHeaders } from '../../utils/backendClient';
@@ -62,6 +61,10 @@ interface ChatMessage {
   chips?: ChatChipType['type'][];
   flashcards?: Flashcard[];
   quizData?: QuizQuestion[];
+  artifactId?: number;
+  artifactTitle?: string;
+  artifactTopic?: string;
+  artifactCount?: number;
 }
 
 interface Chat {
@@ -73,6 +76,9 @@ interface Chat {
   section: 'Today' | 'Yesterday' | 'Earlier';
   messages: ChatMessage[];
 }
+
+const CHAT_HISTORY_FLASHCARDS_KEY = 'focusspark-chat-history-flashcards';
+const CHAT_HISTORY_QUIZ_KEY = 'focusspark-chat-history-quiz';
 
 const stripTutorPromptWrapper = (text: string) => {
   const trimmedText = text.trim();
@@ -156,186 +162,59 @@ function MessageChips({ chips }: { chips: ChatChipType['type'][] }) {
   );
 }
 
-// Flashcard viewer — same visual style as ChatbotWorkspace, flip still works, react buttons are greyed/disabled
-function FlashcardViewer({ flashcards }: { flashcards: Flashcard[] }) {
-  const [index, setIndex] = useState(0);
-  const [showBack, setShowBack] = useState(false);
+function GeneratedArtifactCard({
+  kind,
+  title,
+  description,
+  count,
+  time,
+  onOpen,
+}: {
+  kind: 'flashcard' | 'quiz';
+  title: string;
+  description: string;
+  count?: number;
+  time: string;
+  onOpen: () => void;
+}) {
+  const isQuiz = kind === 'quiz';
+  const artifactLabel = isQuiz ? 'Quiz' : 'Flashcard deck';
+  const normalizedTitle = title.trim().toLowerCase();
+  const normalizedDescription = description.trim().toLowerCase();
+  const subtitle =
+    !description.trim() || normalizedDescription === normalizedTitle
+      ? `${artifactLabel} generated from this chat`
+      : `${artifactLabel} • ${description}`;
 
   return (
-    <div className="w-full space-y-4">
-      <div className="rounded-2xl px-6 py-4 bg-white/95 dark:bg-[#1C1F2A]/95 backdrop-blur-md shadow-lg">
-        <AnimatePresence mode="wait">
-          <motion.div
-            key={index}
-            initial={{ opacity: 0, rotateY: 90 }}
-            animate={{ opacity: 1, rotateY: 0 }}
-            exit={{ opacity: 0, rotateY: -90 }}
-            transition={{ duration: 0.5 }}
-            className="min-h-[300px]"
-          >
-            <Card
-              className="cursor-pointer hover:shadow-2xl transition-shadow border-2 border-blue-500/30 bg-gradient-to-br from-blue-500/10 to-purple-600/10"
-              onClick={() => setShowBack(!showBack)}
-            >
-              <CardHeader>
-                <div className="flex items-start justify-between">
-                  <div>
-                    <CardTitle className="bg-gradient-to-r from-blue-400 to-purple-500 bg-clip-text text-transparent mb-2">
-                      {flashcards[index].title}
-                    </CardTitle>
-                    <div className="flex gap-2 flex-wrap">
-                      {flashcards[index].tags.map((tag) => (
-                        <Badge key={tag} variant="secondary" className="text-xs">{tag}</Badge>
-                      ))}
-                    </div>
-                  </div>
-                  <Badge
-                    variant={
-                      flashcards[index].difficulty === 'easy'
-                        ? 'default'
-                        : flashcards[index].difficulty === 'medium'
-                          ? 'secondary'
-                          : 'destructive'
-                    }
-                  >
-                    {flashcards[index].difficulty}
-                  </Badge>
-                </div>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                {!showBack ? (
-                  <div>
-                    <p className="text-lg mb-4 text-foreground">{flashcards[index].front}</p>
-                    <p className="text-sm text-muted-foreground text-center">Click to reveal answer</p>
-                  </div>
-                ) : (
-                  <div className="space-y-4">
-                    <div className="p-4 rounded-xl bg-card border border-border">
-                      <p className="text-lg text-foreground">{flashcards[index].back}</p>
-                    </div>
-                    {flashcards[index].example && (
-                      <div className="p-4 rounded-xl bg-blue-500/10 border border-blue-500/20">
-                        <p className="text-sm text-muted-foreground mb-1">💡 Example:</p>
-                        <p className="text-foreground">{flashcards[index].example}</p>
-                      </div>
-                    )}
-                    {flashcards[index].memoryTip && (
-                      <div className="p-4 rounded-xl bg-purple-500/10 border border-purple-500/20">
-                        <p className="text-sm text-muted-foreground mb-1">🧠 Memory Tip:</p>
-                        <p className="text-foreground">{flashcards[index].memoryTip}</p>
-                      </div>
-                    )}
-                    {flashcards[index].examShortcut && (
-                      <div className="p-4 rounded-xl bg-teal-500/10 border border-teal-500/20">
-                        <p className="text-sm text-muted-foreground mb-1">⚡ Exam Shortcut:</p>
-                        <p className="font-mono text-foreground">{flashcards[index].examShortcut}</p>
-                      </div>
-                    )}
-                    {/* Greyed-out reaction buttons — read-only */}
-                    <div className="flex gap-3 pt-4">
-                      <div className="flex-1 flex items-center justify-center gap-2 py-2.5 rounded-lg bg-green-500/10 border border-green-500/20 text-green-400/50 text-sm cursor-not-allowed select-none">
-                        <ThumbsUp className="w-4 h-4" />
-                        I Know It
-                      </div>
-                      <div className="flex-1 flex items-center justify-center gap-2 py-2.5 rounded-lg bg-card border border-border text-muted-foreground/40 text-sm cursor-not-allowed select-none">
-                        <ThumbsDown className="w-4 h-4" />
-                        Review Again
-                      </div>
-                    </div>
-                  </div>
-                )}
-              </CardContent>
-            </Card>
-          </motion.div>
-        </AnimatePresence>
-
-        {/* Navigation */}
-        <div className="flex items-center justify-between mt-4">
-          <Button
-            variant="outline"
-            size="icon"
-            disabled={index === 0}
-            onClick={() => { setIndex((p) => p - 1); setShowBack(false); }}
-          >
-            <ChevronRight className="w-5 h-5 rotate-180" />
-          </Button>
-          <span className="text-sm text-muted-foreground">{index + 1} / {flashcards.length}</span>
-          <Button
-            variant="outline"
-            size="icon"
-            disabled={index === flashcards.length - 1}
-            onClick={() => { setIndex((p) => p + 1); setShowBack(false); }}
-          >
-            <ChevronRight className="w-5 h-5" />
-          </Button>
+    <button
+      type="button"
+      onClick={onOpen}
+      className="w-full rounded-[22px] border border-slate-200 bg-white px-8 py-3 text-left shadow-[0_10px_24px_rgba(15,23,42,0.12)] transition-all hover:-translate-y-0.5 hover:border-slate-300 hover:shadow-[0_14px_30px_rgba(15,23,42,0.16)] dark:border-slate-700 dark:bg-[#1C1F2A]"
+    >
+      <div className="flex min-h-[48px] items-center gap-4">
+        <div
+          className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-full ${
+            isQuiz ? 'bg-teal-100 text-teal-500' : 'bg-blue-100 text-blue-500'
+          }`}
+        >
+          {isQuiz ? <BadgeQuestionMark className="h-4 w-4" /> : <BookOpenCheck className="h-4 w-4" />}
         </div>
-      </div>
-    </div>
-  );
-}
-
-// Quiz viewer — same visual as ChatbotWorkspace, answers still selectable so user can review
-function QuizViewer({ questions }: { questions: QuizQuestion[] }) {
-  const [answers, setAnswers] = useState<Record<string, number>>({});
-
-  return (
-    <div className="w-full rounded-2xl px-6 py-4 bg-white/95 dark:bg-[#1C1F2A]/95 backdrop-blur-md shadow-lg space-y-6">
-      {questions.map((question, qIndex) => (
-        <motion.div
-          key={question.id}
-          initial={{ opacity: 0, x: -20 }}
-          animate={{ opacity: 1, x: 0 }}
-          transition={{ delay: qIndex * 0.1 }}
-          className="p-6 rounded-xl bg-card border border-border"
-        >
-          <p className="mb-4 text-foreground">
-            <span className="text-blue-400 mr-2">Q{qIndex + 1}.</span>
-            {question.question}
-          </p>
-          <div className="space-y-2">
-            {question.options.map((option, oIndex) => (
-              <Button
-                key={oIndex}
-                variant="outline"
-                className={`w-full justify-start text-left ${answers[question.id] === oIndex ? 'border-blue-500 bg-blue-500/10' : ''
-                  }`}
-                onClick={() => setAnswers((prev) => ({ ...prev, [question.id]: oIndex }))}
-              >
-                <span className="mr-3 text-muted-foreground">{String.fromCharCode(65 + oIndex)}.</span>
-                {option}
-                {answers[question.id] === oIndex && (
-                  <Check className="w-4 h-4 ml-auto text-blue-400" />
-                )}
-              </Button>
-            ))}
+        <div className="min-w-0 flex-1">
+          <div className="flex min-w-0 items-center gap-2">
+            <p className="truncate text-base font-semibold leading-tight text-slate-900 dark:text-slate-100">{title}</p>
+            {typeof count === 'number' && (
+              <Badge className="shrink-0 rounded-md bg-slate-600 px-2.5 py-0.5 text-xs font-medium text-white hover:bg-slate-600">
+                {count} {isQuiz ? 'questions' : 'cards'}
+              </Badge>
+            )}
           </div>
-          {answers[question.id] !== undefined && (
-            <motion.div
-              initial={{ opacity: 0, height: 0 }}
-              animate={{ opacity: 1, height: 'auto' }}
-              className="mt-4 p-4 rounded-lg bg-teal-500/10 border border-teal-500/20"
-            >
-              <p className="text-sm text-foreground">
-                <span className="text-teal-400 mr-2">💡</span>
-                {question.explanation}
-              </p>
-            </motion.div>
-          )}
-        </motion.div>
-      ))}
-      {Object.keys(answers).length === questions.length && (
-        <motion.div
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          className="text-center p-6 rounded-xl bg-gradient-to-r from-green-500/20 to-teal-500/20 border border-green-500/30"
-        >
-          <p className="text-2xl mb-2 text-foreground">🎉 Quiz Complete!</p>
-          <p className="text-muted-foreground">
-            Score: {Object.values(answers).filter((a, i) => a === questions[i].correctAnswer).length} / {questions.length}
-          </p>
-        </motion.div>
-      )}
-    </div>
+          <p className="mt-1 truncate text-sm leading-snug text-slate-500 dark:text-slate-400">{subtitle}</p>
+        </div>
+        <span className="hidden w-20 shrink-0 text-right text-sm text-slate-400 sm:block">{time}</span>
+        <ChevronRight className="h-6 w-6 shrink-0 text-slate-500" />
+      </div>
+    </button>
   );
 }
 
@@ -427,17 +306,57 @@ export function ChatHistoryPage({ onNavigate }: ChatHistoryPageProps = {}) {
 
   const mapFlashcards = (value: unknown): Flashcard[] => {
     const payload = value as Record<string, unknown> | Record<string, unknown>[] | undefined;
+    const payloadArray = Array.isArray(payload) ? payload : undefined;
     const payloadObject = !Array.isArray(payload) ? payload : undefined;
     const nestedData = payloadObject && typeof payloadObject.data === 'object' && payloadObject.data !== null
       ? (payloadObject.data as Record<string, unknown>)
       : undefined;
-    const source = Array.isArray(payload)
-      ? payload
+    const nestedArtifact = payloadObject && typeof payloadObject.artifact === 'object' && payloadObject.artifact !== null
+      ? (payloadObject.artifact as Record<string, unknown>)
+      : undefined;
+    const artifactItems = Array.isArray(payloadObject?.artifacts)
+      ? (payloadObject.artifacts as Record<string, unknown>[])
+      : [];
+    const getArtifactFlashcards = (artifact: Record<string, unknown>) => {
+      if (Array.isArray(artifact.flashcards)) return artifact.flashcards as Record<string, unknown>[];
+      if (Array.isArray(artifact.cards)) return artifact.cards as Record<string, unknown>[];
+      if (typeof artifact.data === 'object' && artifact.data !== null) {
+        const data = artifact.data as Record<string, unknown>;
+        if (Array.isArray(data.flashcards)) return data.flashcards as Record<string, unknown>[];
+        if (Array.isArray(data.cards)) return data.cards as Record<string, unknown>[];
+      }
+      if (typeof artifact.payload === 'object' && artifact.payload !== null) {
+        const payloadData = artifact.payload as Record<string, unknown>;
+        if (Array.isArray(payloadData.flashcards)) return payloadData.flashcards as Record<string, unknown>[];
+        if (Array.isArray(payloadData.cards)) return payloadData.cards as Record<string, unknown>[];
+      }
+      return [];
+    };
+    const artifactFlashcards = artifactItems.flatMap((artifact) => {
+      return getArtifactFlashcards(artifact);
+    });
+    const arrayArtifactFlashcards = payloadArray?.flatMap((artifact) => getArtifactFlashcards(artifact)) ?? [];
+    const source = payloadArray
+      ? (arrayArtifactFlashcards.length > 0 ? arrayArtifactFlashcards : payloadArray)
       : Array.isArray(payloadObject?.flashcards)
         ? (payloadObject.flashcards as Record<string, unknown>[])
+        : Array.isArray(payloadObject?.cards)
+          ? (payloadObject.cards as Record<string, unknown>[])
         : Array.isArray(nestedData?.flashcards)
           ? (nestedData.flashcards as Record<string, unknown>[])
-          : [];
+          : Array.isArray(nestedData?.cards)
+            ? (nestedData.cards as Record<string, unknown>[])
+            : Array.isArray(nestedArtifact?.flashcards)
+              ? (nestedArtifact.flashcards as Record<string, unknown>[])
+              : Array.isArray(nestedArtifact?.cards)
+                ? (nestedArtifact.cards as Record<string, unknown>[])
+                : artifactFlashcards.length > 0
+                  ? artifactFlashcards
+                  : payloadObject &&
+                      (payloadObject.front || payloadObject.question) &&
+                      (payloadObject.back || payloadObject.answer)
+                    ? [payloadObject]
+                    : [];
 
     return source
       .map((card, index) => ({
@@ -464,13 +383,43 @@ export function ChatHistoryPage({ onNavigate }: ChatHistoryPageProps = {}) {
 
   const mapQuizQuestions = (value: unknown): QuizQuestion[] => {
     const payload = value as Record<string, unknown> | Record<string, unknown>[] | undefined;
-    const source = Array.isArray(payload)
-      ? payload
-      : Array.isArray(payload?.questions)
-        ? (payload?.questions as Record<string, unknown>[])
+    const payloadArray = Array.isArray(payload) ? payload : undefined;
+    const payloadObject = !Array.isArray(payload) ? payload : undefined;
+    const artifactItems = Array.isArray(payloadObject?.artifacts)
+      ? (payloadObject.artifacts as Record<string, unknown>[])
+      : [];
+    const getArtifactQuestions = (artifact: Record<string, unknown>) => {
+      if (Array.isArray(artifact.questions)) return artifact.questions as Record<string, unknown>[];
+      if (Array.isArray(artifact.quizData)) return artifact.quizData as Record<string, unknown>[];
+      if (typeof artifact.data === 'object' && artifact.data !== null) {
+        const data = artifact.data as Record<string, unknown>;
+        if (Array.isArray(data.questions)) return data.questions as Record<string, unknown>[];
+        if (Array.isArray(data.quizData)) return data.quizData as Record<string, unknown>[];
+      }
+      if (typeof artifact.payload === 'object' && artifact.payload !== null) {
+        const payloadData = artifact.payload as Record<string, unknown>;
+        if (Array.isArray(payloadData.questions)) return payloadData.questions as Record<string, unknown>[];
+        if (Array.isArray(payloadData.quizData)) return payloadData.quizData as Record<string, unknown>[];
+      }
+      return [];
+    };
+    const artifactQuestions = artifactItems.flatMap((artifact) => getArtifactQuestions(artifact));
+    const arrayArtifactQuestions = payloadArray?.flatMap((artifact) => getArtifactQuestions(artifact)) ?? [];
+    const source = payloadArray
+      ? (arrayArtifactQuestions.length > 0 ? arrayArtifactQuestions : payloadArray)
+      : Array.isArray(payloadObject?.questions)
+        ? (payloadObject.questions as Record<string, unknown>[])
+        : Array.isArray(payloadObject?.quizData)
+          ? (payloadObject.quizData as Record<string, unknown>[])
         : Array.isArray((payload as Record<string, any> | undefined)?.data?.questions)
-          ? ((payload as Record<string, any>)?.data?.questions as Record<string, unknown>[])
-          : [];
+            ? ((payload as Record<string, any>)?.data?.questions as Record<string, unknown>[])
+          : Array.isArray((payload as Record<string, any> | undefined)?.data?.quizData)
+            ? ((payload as Record<string, any>)?.data?.quizData as Record<string, unknown>[])
+            : artifactQuestions.length > 0
+              ? artifactQuestions
+              : payloadObject && payloadObject.question && (payloadObject.options || payloadObject.choices)
+                ? [payloadObject]
+                : [];
 
     return source
       .map((question, index) => ({
@@ -481,6 +430,112 @@ export function ChatHistoryPage({ onNavigate }: ChatHistoryPageProps = {}) {
         explanation: String(question.explanation ?? ''),
       }))
       .filter((question) => question.question.length > 0 && question.options.length > 0);
+  };
+
+  const extractArtifactItems = (value: unknown): Record<string, unknown>[] => {
+    const payload = value as Record<string, unknown> | Record<string, unknown>[] | undefined;
+    if (Array.isArray(payload)) return payload;
+
+    const candidates = [
+      payload?.artifacts,
+      payload?.data,
+      (payload?.data as Record<string, unknown> | undefined)?.artifacts,
+    ];
+
+    for (const candidate of candidates) {
+      if (Array.isArray(candidate)) return candidate as Record<string, unknown>[];
+    }
+
+    return payload ? [payload] : [];
+  };
+
+  const getArtifactTitle = (
+    artifact: Record<string, unknown>,
+    fallback: string,
+    firstItemText?: string,
+  ) => {
+    const stripArtifactSuffix = (value: unknown) => {
+      const text = String(value ?? '').trim();
+      return text.replace(/\s+(flashcards|quiz)$/i, '').trim() || text;
+    };
+    const title = stripArtifactSuffix(artifact.title ?? artifact.name);
+    const topic = String(artifact.topic ?? artifact.subject ?? '').trim();
+    const isGenericArtifactLabel = (value: string) =>
+      ['', 'chat flashcards', 'chat quiz', 'flashcards', 'quiz', 'focusspark ai tutor', 'ai tutor'].includes(
+        value.trim().toLowerCase(),
+      );
+
+    if (title && !isGenericArtifactLabel(title)) {
+      return title;
+    }
+
+    if (topic && !isGenericArtifactLabel(topic)) return topic;
+    if (firstItemText) return firstItemText;
+    return fallback;
+  };
+
+  const createArtifactMessages = (
+    artifactPayload: unknown,
+    messageId: string,
+    time: string,
+    directFlashcardsLength = 0,
+    directQuizLength = 0,
+  ): ChatMessage[] => {
+    const messages: ChatMessage[] = [];
+
+    extractArtifactItems(artifactPayload).forEach((artifact, index) => {
+      const artifactType = String(
+        artifact.artifact_type ?? artifact.type ?? artifact.kind ?? '',
+      ).toLowerCase();
+      const artifactId = Number(
+        artifact.artifact_id ?? artifact.deck_id ?? artifact.quiz_id ?? artifact.id,
+      );
+      const rawTopic = String(artifact.topic ?? artifact.subject ?? '').trim();
+
+      if (artifactType === 'deck' || artifactType === 'flashcard' || artifactType === 'flashcards') {
+        if (directFlashcardsLength > 0) return;
+
+        const flashcards = mapFlashcards(artifact);
+        const count = Number(artifact.total_cards ?? artifact.card_count ?? flashcards.length);
+        const title = getArtifactTitle(artifact, 'Chat Flashcards', flashcards[0]?.front);
+        const topic = title === rawTopic ? rawTopic : '';
+
+        messages.push({
+          id: `${messageId}-flashcards-${artifactId || index}`,
+          role: 'flashcard',
+          text: topic || title || 'Flashcards generated from this chat thread.',
+          time,
+          flashcards,
+          artifactId: Number.isFinite(artifactId) ? artifactId : undefined,
+          artifactTitle: title,
+          artifactTopic: topic || undefined,
+          artifactCount: Number.isFinite(count) ? count : flashcards.length,
+        });
+      }
+
+      if (artifactType === 'quiz') {
+        if (directQuizLength > 0) return;
+
+        const quizData = mapQuizQuestions(artifact);
+        const count = Number(artifact.total_questions ?? artifact.question_count ?? quizData.length);
+        const title = getArtifactTitle(artifact, 'Chat Quiz', quizData[0]?.question);
+        const topic = title === rawTopic ? rawTopic : '';
+
+        messages.push({
+          id: `${messageId}-quiz-${artifactId || index}`,
+          role: 'quiz',
+          text: topic || title || 'Quiz generated from this chat thread.',
+          time,
+          quizData,
+          artifactId: Number.isFinite(artifactId) ? artifactId : undefined,
+          artifactTitle: title,
+          artifactTopic: topic || undefined,
+          artifactCount: Number.isFinite(count) ? count : quizData.length,
+        });
+      }
+    });
+
+    return messages;
   };
 
   const truncateThreadText = (text: string, maxLength = 40) => (
@@ -660,6 +715,49 @@ export function ChatHistoryPage({ onNavigate }: ChatHistoryPageProps = {}) {
         }
       }
 
+      const rawMessageData = typeof rawMessage.data === 'object' && rawMessage.data !== null
+        ? (rawMessage.data as Record<string, unknown>)
+        : undefined;
+      const rawKind = String(rawMessage.role ?? rawMessage.type ?? rawMessage.kind ?? '').toLowerCase();
+      const hasDirectFlashcardPayload =
+        rawKind.includes('flashcard') ||
+        Array.isArray(rawMessage.flashcards) ||
+        Array.isArray(rawMessage.cards) ||
+        Array.isArray(rawMessageData?.flashcards) ||
+        Array.isArray(rawMessageData?.cards) ||
+        Boolean(rawMessage.artifact) ||
+        Array.isArray(rawMessage.artifacts);
+      const hasDirectQuizPayload =
+        rawKind.includes('quiz') ||
+        Array.isArray(rawMessage.questions) ||
+        Array.isArray(rawMessage.quizData) ||
+        Array.isArray(rawMessageData?.questions) ||
+        Array.isArray(rawMessageData?.quizData) ||
+        Boolean(rawMessage.artifact) ||
+        Array.isArray(rawMessage.artifacts);
+      const directFlashcards = hasDirectFlashcardPayload ? mapFlashcards(rawMessage) : [];
+      const directQuizData = hasDirectQuizPayload ? mapQuizQuestions(rawMessage) : [];
+
+      if (directFlashcards.length > 0) {
+        normalizedMessages.push({
+          id: `${messageId}-flashcards-direct`,
+          role: 'flashcard',
+          text: 'Generated flashcards from this chat thread.',
+          time,
+          flashcards: directFlashcards,
+        });
+      }
+
+      if (directQuizData.length > 0) {
+        normalizedMessages.push({
+          id: `${messageId}-quiz-direct`,
+          role: 'quiz',
+          text: 'Generated quiz from this chat thread.',
+          time,
+          quizData: directQuizData,
+        });
+      }
+
       try {
         const numericMessageId = Number.parseInt(messageId, 10);
         if (!Number.isFinite(numericMessageId)) continue;
@@ -669,34 +767,66 @@ export function ChatHistoryPage({ onNavigate }: ChatHistoryPageProps = {}) {
           headers: authHeaders,
         });
         const artifactPayload = artifactResponse.data?.data ?? artifactResponse.data;
-
-        const flashcards = mapFlashcards(artifactPayload);
-        if (flashcards.length > 0) {
-          normalizedMessages.push({
-            id: `${messageId}-flashcards`,
-            role: 'flashcard',
-            text: '🔥 Generated flashcards from this chat thread.',
+        normalizedMessages.push(
+          ...createArtifactMessages(
+            artifactPayload,
+            messageId,
             time,
-            flashcards,
-          });
-        }
-
-        const quizData = mapQuizQuestions(artifactPayload);
-        if (quizData.length > 0) {
-          normalizedMessages.push({
-            id: `${messageId}-quiz`,
-            role: 'quiz',
-            text: '📝 Quick knowledge check! Answer these questions:',
-            time,
-            quizData,
-          });
-        }
+            directFlashcards.length,
+            directQuizData.length,
+          ),
+        );
       } catch {
         // Ignore missing artifacts for messages that do not generate them.
       }
     }
 
     return normalizedMessages;
+  };
+
+  const getThreadArtifactMessages = (thread: Record<string, unknown>, threadId: string, time: string): ChatMessage[] => {
+    const data = typeof thread.data === 'object' && thread.data !== null
+      ? (thread.data as Record<string, unknown>)
+      : undefined;
+    const hasFlashcards =
+      Array.isArray(thread.flashcards) ||
+      Array.isArray(thread.cards) ||
+      Array.isArray(data?.flashcards) ||
+      Array.isArray(data?.cards) ||
+      Boolean(thread.artifact) ||
+      Array.isArray(thread.artifacts);
+    const hasQuiz =
+      Array.isArray(thread.questions) ||
+      Array.isArray(thread.quizData) ||
+      Array.isArray(data?.questions) ||
+      Array.isArray(data?.quizData) ||
+      Boolean(thread.artifact) ||
+      Array.isArray(thread.artifacts);
+    const flashcards = hasFlashcards ? mapFlashcards(thread) : [];
+    const quizData = hasQuiz ? mapQuizQuestions(thread) : [];
+    const artifactMessages: ChatMessage[] = [];
+
+    if (flashcards.length > 0) {
+      artifactMessages.push({
+        id: `${threadId}-thread-flashcards`,
+        role: 'flashcard',
+        text: 'Generated flashcards from this chat thread.',
+        time,
+        flashcards,
+      });
+    }
+
+    if (quizData.length > 0) {
+      artifactMessages.push({
+        id: `${threadId}-thread-quiz`,
+        role: 'quiz',
+        text: 'Generated quiz from this chat thread.',
+        time,
+        quizData,
+      });
+    }
+
+    return artifactMessages;
   };
 
   const normalizeThread = async (thread: Record<string, unknown>, index: number, authHeaders: Record<string, string | undefined>): Promise<Chat> => {
@@ -706,15 +836,21 @@ export function ChatHistoryPage({ onNavigate }: ChatHistoryPageProps = {}) {
       : Array.isArray((thread as Record<string, any>).data?.messages)
         ? ((thread as Record<string, any>).data?.messages as unknown[])
         : [];
-    const messages = withThreadContextMessage(thread, await normalizeThreadMessages(threadId, rawMessages, authHeaders), threadId);
-    const previewSource = getThreadPreviewText(thread, messages) || 'Open chat history';
     const timeSource = thread.updated_at ?? thread.created_at ?? thread.last_message_at ?? thread.timestamp;
+    const time = formatTimeLabel(timeSource, 'Recently');
+    const normalizedMessages = await normalizeThreadMessages(threadId, rawMessages, authHeaders);
+    const messages = withThreadContextMessage(
+      thread,
+      [...normalizedMessages, ...getThreadArtifactMessages(thread, threadId, time)],
+      threadId,
+    );
+    const previewSource = getThreadPreviewText(thread, messages) || 'Open chat history';
 
     return {
       id: threadId,
       name: resolveThreadDisplayName(thread, messages, index),
       preview: previewSource,
-      time: formatTimeLabel(timeSource, 'Recently'),
+      time,
       icon: resolveIcon(thread, messages),
       section: getSectionLabel(timeSource),
       messages,
@@ -734,20 +870,22 @@ export function ChatHistoryPage({ onNavigate }: ChatHistoryPageProps = {}) {
             : [];
 
       const threadObject = (Array.isArray(threadPayload) ? {} : (threadPayload as Record<string, unknown>)) as Record<string, unknown>;
+      const timeSource = threadObject.updated_at ?? threadObject.created_at ?? threadObject.last_message_at ?? threadObject.timestamp;
+      const time = formatTimeLabel(timeSource, 'Recently');
+      const normalizedMessages = await normalizeThreadMessages(threadId, rawMessages as unknown[], authHeaders);
       const messages = withThreadContextMessage(
         threadObject,
-        await normalizeThreadMessages(threadId, rawMessages as unknown[], authHeaders),
+        [...normalizedMessages, ...getThreadArtifactMessages(threadObject, threadId, time)],
         threadId,
       );
       const displayName = resolveThreadDisplayName(threadObject, messages, index);
       const previewSource = getThreadPreviewText(threadObject, messages) || 'Open chat history';
-      const timeSource = threadObject.updated_at ?? threadObject.created_at ?? threadObject.last_message_at ?? threadObject.timestamp;
 
       return {
         id: threadId,
         name: displayName,
         preview: previewSource,
-        time: formatTimeLabel(timeSource, 'Recently'),
+        time,
         icon: resolveIcon(threadObject, messages),
         section: getSectionLabel(timeSource),
         messages,
@@ -847,6 +985,45 @@ export function ChatHistoryPage({ onNavigate }: ChatHistoryPageProps = {}) {
     } finally {
       setSelectedLoading(false);
     }
+  };
+
+  const openGeneratedFlashcards = (message: ChatMessage) => {
+    if (!message.artifactId && !message.flashcards?.length) return;
+
+    sessionStorage.setItem(
+      CHAT_HISTORY_FLASHCARDS_KEY,
+      JSON.stringify({
+        id: message.artifactId ?? message.id,
+        deckId: message.artifactId,
+        title: message.artifactTitle || message.artifactTopic || 'Chat Flashcards',
+        topic: message.artifactTopic,
+        description: message.text || 'Flashcards generated from this chat thread.',
+        cards: message.flashcards ?? [],
+      }),
+    );
+    onNavigate?.('flashcards');
+  };
+
+  const openGeneratedQuiz = (message: ChatMessage) => {
+    if (!message.artifactId && !message.quizData?.length) return;
+
+    const firstQuestion = String(message.quizData?.[0]?.question || '').trim();
+    const derivedTitle = message.artifactTitle || message.artifactTopic || (firstQuestion.length > 0 ? firstQuestion : 'Quiz');
+
+    sessionStorage.setItem(
+      CHAT_HISTORY_QUIZ_KEY,
+      JSON.stringify({
+        id: message.artifactId ?? message.id,
+        quizId: message.artifactId,
+        title: derivedTitle,
+        topic: message.artifactTopic,
+        description: message.text || 'Quiz generated from this chat thread.',
+        category: 'Chat',
+        tags: ['chat'],
+        questions: message.quizData ?? [],
+      }),
+    );
+    onNavigate?.('quiz');
   };
 
   // Example: upload a document to chat/document endpoint
@@ -1107,18 +1284,26 @@ export function ChatHistoryPage({ onNavigate }: ChatHistoryPageProps = {}) {
 
                       {/* Flashcard Messages */}
                       {msg.role === 'flashcard' && msg.flashcards && (
-                        <div className="w-full space-y-2">
-                          <p className="text-foreground px-1">{msg.text}</p>
-                          <FlashcardViewer flashcards={msg.flashcards} />
-                        </div>
+                        <GeneratedArtifactCard
+                          kind="flashcard"
+                          title={msg.artifactTitle || msg.artifactTopic || 'Flashcards generated'}
+                          description={msg.artifactTopic || 'Open these chat flashcards in the flashcard review page.'}
+                          count={msg.artifactCount ?? msg.flashcards.length}
+                          time={msg.time}
+                          onOpen={() => openGeneratedFlashcards(msg)}
+                        />
                       )}
 
                       {/* Quiz Messages */}
                       {msg.role === 'quiz' && msg.quizData && (
-                        <div className="w-full space-y-2">
-                          <p className="text-foreground px-1">{msg.text}</p>
-                          <QuizViewer questions={msg.quizData} />
-                        </div>
+                        <GeneratedArtifactCard
+                          kind="quiz"
+                          title={msg.artifactTitle || msg.artifactTopic || 'Quiz generated'}
+                          description={msg.artifactTopic || 'Open this generated quiz in the quiz attempt page.'}
+                          count={msg.artifactCount ?? msg.quizData.length}
+                          time={msg.time}
+                          onOpen={() => openGeneratedQuiz(msg)}
+                        />
                       )}
                     </motion.div>
                   ))}
@@ -1139,7 +1324,3 @@ export function ChatHistoryPage({ onNavigate }: ChatHistoryPageProps = {}) {
     </motion.div>
   );
 }
-
-
-
-

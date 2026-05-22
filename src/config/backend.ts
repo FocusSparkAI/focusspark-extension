@@ -11,7 +11,6 @@ export const BACKEND_ROUTES = {
 
   // Auth endpoints
   authLogin: '/auth/login',
-  authSignup: '/auth/signup',
 
   // Chat endpoints
   chatThreads: '/chat/threads',

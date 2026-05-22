@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { motion } from 'motion/react';
 import {
   ArrowRight,
@@ -27,42 +27,34 @@ import { Input } from '../../components/ui/input';
 import { Label } from '../../components/ui/label';
 import { useFocus } from '../../context/FocusContext';
 import { usePomodoro } from '../../context/PomodoroContext';
+import { BACKEND_ROUTES } from '../../config/backend';
+import backendClient, { getAuthHeaders } from '../../utils/backendClient';
 
 interface StudentDashboardProps {
   onNavigate: (page: string) => void;
   onLogout: () => void | Promise<void>;
 }
 
-const overviewStats = [
-  {
-    label: 'AI Tutor',
-    value: 'Ready',
-    helper: 'Ask questions while studying',
-    icon: Bot,
-    color: 'text-blue-500',
-  },
-  {
-    label: 'Flashcards',
-    value: '12',
-    helper: 'Cards ready for review',
-    icon: Layers,
-    color: 'text-emerald-500',
-  },
-  {
-    label: 'Quiz Practice',
-    value: '3',
-    helper: 'Practice sets available',
-    icon: ClipboardCheck,
-    color: 'text-purple-500',
-  },
-  {
-    label: 'Focus Streak',
-    value: '7d',
-    helper: 'Keep your rhythm going',
-    icon: Trophy,
-    color: 'text-amber-500',
-  },
-];
+const getFocusStreakDays = (sessions: Array<{ completed: boolean; endTime?: Date; startTime: Date }>) => {
+  const completedDays = new Set(
+    sessions
+      .filter((session) => session.completed)
+      .map((session) => {
+        const date = new Date(session.endTime ?? session.startTime);
+        return Number.isNaN(date.getTime()) ? null : date.toDateString();
+      })
+      .filter(Boolean),
+  );
+
+  let streak = 0;
+  const cursor = new Date();
+  while (completedDays.has(cursor.toDateString())) {
+    streak += 1;
+    cursor.setDate(cursor.getDate() - 1);
+  }
+
+  return streak;
+};
 
 const studyTools = [
   {
@@ -97,6 +89,11 @@ const studyTools = [
 
 export function StudentDashboard({ onNavigate, onLogout }: StudentDashboardProps) {
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const [dashboardStats, setDashboardStats] = useState({
+    flashcardDecks: 0,
+    quizSets: 0,
+    isLoading: true,
+  });
   const [savedFocusMinutes, setSavedFocusMinutes] = useState(() => {
     const saved = Number(localStorage.getItem('focusspark-extension-focus-minutes'));
     return Number.isFinite(saved) && saved > 0 ? saved : 25;
@@ -108,7 +105,74 @@ export function StudentDashboard({ onNavigate, onLogout }: StudentDashboardProps
   const [draftFocusMinutes, setDraftFocusMinutes] = useState(savedFocusMinutes);
   const [draftBreakMinutes, setDraftBreakMinutes] = useState(savedBreakMinutes);
   const { isDetectionEnabled } = useFocus();
-  const { startSession } = usePomodoro();
+  const { startSession, sessions } = usePomodoro();
+  const focusStreakDays = useMemo(() => getFocusStreakDays(sessions), [sessions]);
+
+  useEffect(() => {
+    let isMounted = true;
+
+    const loadDashboardStats = async () => {
+      try {
+        const authHeaders = await getAuthHeaders();
+        const [flashcardsResponse, quizzesResponse] = await Promise.all([
+          backendClient.get(BACKEND_ROUTES.flashcards, { headers: authHeaders }),
+          backendClient.get(BACKEND_ROUTES.quiz, { headers: authHeaders }),
+        ]);
+
+        if (!isMounted) return;
+
+        const decks = Array.isArray(flashcardsResponse.data) ? flashcardsResponse.data : [];
+        const quizzes = Array.isArray(quizzesResponse.data) ? quizzesResponse.data : [];
+
+        setDashboardStats({
+          flashcardDecks: decks.length,
+          quizSets: quizzes.length,
+          isLoading: false,
+        });
+      } catch {
+        if (isMounted) {
+          setDashboardStats((current) => ({ ...current, isLoading: false }));
+        }
+      }
+    };
+
+    void loadDashboardStats();
+
+    return () => {
+      isMounted = false;
+    };
+  }, []);
+
+  const overviewStats = [
+    {
+      label: 'AI Tutor',
+      value: 'Ready',
+      helper: 'Ask questions while studying',
+      icon: Bot,
+      color: 'text-blue-500',
+    },
+    {
+      label: 'Flashcards',
+      value: dashboardStats.isLoading ? '...' : String(dashboardStats.flashcardDecks),
+      helper: dashboardStats.flashcardDecks === 1 ? 'Deck ready for review' : 'Decks ready for review',
+      icon: Layers,
+      color: 'text-emerald-500',
+    },
+    {
+      label: 'Quiz Practice',
+      value: dashboardStats.isLoading ? '...' : String(dashboardStats.quizSets),
+      helper: dashboardStats.quizSets === 1 ? 'Practice set available' : 'Practice sets available',
+      icon: ClipboardCheck,
+      color: 'text-purple-500',
+    },
+    {
+      label: 'Focus Streak',
+      value: `${focusStreakDays}d`,
+      helper: focusStreakDays > 0 ? 'Keep your rhythm going' : 'Complete a focus session today',
+      icon: Trophy,
+      color: 'text-amber-500',
+    },
+  ];
 
   const savePomodoroTimings = () => {
     const nextFocus = Math.min(120, Math.max(5, draftFocusMinutes));

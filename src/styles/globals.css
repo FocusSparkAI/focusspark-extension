@@ -303,6 +303,78 @@ h1, h2, h3, h4, h5, h6 {
   -webkit-text-fill-color: transparent;
 }
 
+.chat-model-select-trigger {
+  background: rgba(255, 255, 255, 0.96) !important;
+  border: 2px solid rgba(59, 130, 246, 0.3) !important;
+  color: #0f172a !important;
+}
+
+.chat-model-select-trigger svg {
+  color: #64748b !important;
+}
+
+.chat-model-select-trigger:hover {
+  border-color: rgba(139, 92, 246, 0.45) !important;
+}
+
+.chat-model-select-content {
+  background: rgba(255, 255, 255, 0.98) !important;
+  border: 1px solid rgba(139, 92, 246, 0.25) !important;
+  color: #0f172a !important;
+  box-shadow: 0 18px 45px rgba(139, 92, 246, 0.14) !important;
+}
+
+.chat-model-select-item {
+  color: #334155 !important;
+}
+
+.chat-model-select-item:focus,
+.chat-model-select-item[data-highlighted] {
+  background: rgba(139, 92, 246, 0.12) !important;
+  color: #0f172a !important;
+}
+
+.chat-model-select-item[data-state='checked'] {
+  background: rgba(59, 130, 246, 0.1) !important;
+  color: #2563eb !important;
+}
+
+.dark .chat-model-select-trigger {
+  background: #151824 !important;
+  border-color: rgba(96, 165, 250, 0.34) !important;
+  color: #f8fafc !important;
+}
+
+.dark .chat-model-select-trigger svg {
+  color: #cbd5e1 !important;
+}
+
+.dark .chat-model-select-trigger:hover {
+  border-color: rgba(192, 132, 252, 0.5) !important;
+}
+
+.dark .chat-model-select-content {
+  background: rgba(21, 24, 36, 0.98) !important;
+  border-color: rgba(96, 165, 250, 0.28) !important;
+  color: #f8fafc !important;
+  box-shadow: 0 18px 45px rgba(0, 0, 0, 0.45) !important;
+}
+
+.dark .chat-model-select-item {
+  color: #e2e8f0 !important;
+}
+
+.dark .chat-model-select-item:focus,
+.dark .chat-model-select-item[data-highlighted] {
+  background: rgba(192, 132, 252, 0.16) !important;
+  color: #ffffff !important;
+}
+
+.dark .chat-model-select-item[data-state='checked'] {
+  background: rgba(96, 165, 250, 0.18) !important;
+  color: #bfdbfe !important;
+}
+
 /* Animated Gradient Background */
 @keyframes gradient-wave {
   0% {
@@ -467,22 +539,6 @@ h1, h2, h3, h4, h5, h6 {
 
 .float-animation {
   animation: float 3s ease-in-out infinite;
-}
-
-/* Particle Animation */
-@keyframes particle-float {
-  0%, 100% {
-    transform: translate(0, 0);
-    opacity: 0.3;
-  }
-  50% {
-    transform: translate(20px, -20px);
-    opacity: 0.6;
-  }
-}
-
-.particle {
-  animation: particle-float 4s ease-in-out infinite;
 }
 
 /* Pulse Glow */
@@ -690,14 +746,6 @@ h1, h2, h3, h4, h5, h6 {
   background: linear-gradient(135deg, #F9FAFB 0%, #EFF6FF 25%, #F9FAFB 50%, #F5F3FF 75%, #F9FAFB 100%);
   background-size: 200% 200%;
   animation: gradient-wave 15s ease infinite;
-}
-
-/* Dynamic Island - Light Mode */
-:not(.dark) .dynamic-island {
-  background: linear-gradient(135deg, rgba(59, 130, 246, 0.08) 0%, rgba(139, 92, 246, 0.08) 100%);
-  backdrop-filter: blur(20px);
-  -webkit-backdrop-filter: blur(20px);
-  border: 1px solid rgba(0, 0, 0, 0.08);
 }
 
 /* Focus Wave - Light Mode */
@@ -1161,44 +1209,6 @@ html {
   background: linear-gradient(135deg, #10121a 0%, #1a4028 25%, #2a401a 50%, #1a4028 75%, #10121a 100%);
   background-size: 200% 200%;
   animation: focus-wave-break 12s ease infinite;
-}
-
-/* Dynamic Island Chat Bar */
-.dynamic-island {
-  background: linear-gradient(135deg, rgba(59, 130, 246, 0.1) 0%, rgba(139, 92, 246, 0.1) 100%);
-  backdrop-filter: blur(20px);
-  -webkit-backdrop-filter: blur(20px);
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  position: relative;
-  overflow: hidden;
-}
-
-.dynamic-island::before {
-  content: '';
-  position: absolute;
-  top: -50%;
-  left: -50%;
-  width: 200%;
-  height: 200%;
-  background: linear-gradient(
-    135deg,
-    transparent 0%,
-    rgba(255, 255, 255, 0.05) 45%,
-    rgba(255, 255, 255, 0.1) 50%,
-    rgba(255, 255, 255, 0.05) 55%,
-    transparent 100%
-  );
-  animation: sheen 3s infinite;
-  pointer-events: none;
-}
-
-@keyframes sheen {
-  0% {
-    transform: translateX(-100%) translateY(-100%) rotate(45deg);
-  }
-  100% {
-    transform: translateX(100%) translateY(100%) rotate(45deg);
-  }
 }
 
 /* Progress Bar Trail Glow */

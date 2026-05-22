@@ -1,5 +1,6 @@
-import { Moon, Sun, Sparkles } from 'lucide-react';
+import { LayoutDashboard, Moon, Sparkles, Sun } from 'lucide-react';
 import { Button } from '../ui/button';
+import { getAccessToken } from '../../utils/backendClient';
 
 interface NavigationProps {
   currentPage: string;
@@ -9,45 +10,31 @@ interface NavigationProps {
 }
 
 export function Navigation({ currentPage, onNavigate, theme, onThemeToggle }: NavigationProps) {
-  const placeholderUrl = 'https://www.google.com/';
-  const navLinks = [
-    { name: 'Home', href: placeholderUrl },
-    { name: 'Our Science', href: placeholderUrl },
-    { name: 'About Us', href: placeholderUrl },
-    { name: 'Contact', href: placeholderUrl },
-  ];
   void currentPage;
 
+  const openDashboard = async () => {
+    const token = await getAccessToken();
+    onNavigate(token ? 'dashboard' : 'signin');
+  };
+
   return (
-    <nav className="fixed top-0 left-0 right-0 z-50 bg-background/80 backdrop-blur-lg border-b border-border">
-      <div className="w-full px-6 lg:px-10 xl:px-12">
-        <div className="flex items-center justify-between h-16">
-          {/* Logo */}
+    <nav className="sticky left-0 right-0 top-0 z-50 mb-6 px-3 py-3">
+      <div className="mx-auto max-w-6xl rounded-2xl border border-border bg-background/90 px-4 shadow-sm backdrop-blur-xl sm:px-5">
+        <div className="flex h-12 items-center justify-between">
           <button
             onClick={() => onNavigate('home')}
-            className="flex items-center gap-2 transition-transform hover:scale-105"
+            className="flex min-w-0 items-center gap-2 transition-opacity hover:opacity-85"
           >
-            <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-blue-500 to-purple-600 flex items-center justify-center glow-blue-purple">
-              <Sparkles className="w-5 h-5 text-white" />
+            <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-gradient-to-br from-blue-500 to-purple-600 glow-blue-purple">
+              <Sparkles className="h-4 w-4 text-white" />
             </div>
-            <span className="font-bold text-xl text-foreground">FocusSpark</span>
+            <span className="truncate text-lg font-bold text-foreground">FocusSpark</span>
+            <span className="hidden rounded-full border border-border bg-card px-2 py-0.5 text-xs text-secondary sm:inline-flex">
+              Extension
+            </span>
           </button>
 
-          <div className="hidden md:flex items-center gap-8">
-            {navLinks.map((link) => (
-              <button
-                key={link.name}
-                onClick={() => window.open(link.href, '_blank', 'noopener,noreferrer')}
-                className="transition-colors text-muted-foreground hover:text-foreground"
-              >
-                {link.name}
-              </button>
-            ))}
-          </div>
-
-          {/* Right Actions */}
           <div className="flex items-center gap-3">
-            {/* Theme Toggle */}
             <Button
               variant="ghost"
               size="icon"
@@ -61,7 +48,6 @@ export function Navigation({ currentPage, onNavigate, theme, onThemeToggle }: Na
               )}
             </Button>
 
-            {/* Auth Buttons */}
             <Button
               variant="ghost"
               onClick={() => onNavigate('signin')}
@@ -70,10 +56,11 @@ export function Navigation({ currentPage, onNavigate, theme, onThemeToggle }: Na
               Sign In
             </Button>
             <Button
-              onClick={() => onNavigate('signup')}
+              onClick={() => void openDashboard()}
               className="bg-gradient-to-r from-blue-500 to-purple-600 hover:opacity-90 transition-all"
             >
-              Get Started
+              <LayoutDashboard className="mr-2 hidden h-4 w-4 sm:block" />
+              Open Dashboard
             </Button>
           </div>
         </div>

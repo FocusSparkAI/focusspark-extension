@@ -15,6 +15,7 @@ interface SignInPageProps {
 }
 
 export function SignInPage({ onNavigate, onAuthSuccess }: SignInPageProps) {
+  const websiteSignupUrl = 'https://www.google.com/';
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
@@ -261,7 +262,7 @@ export function SignInPage({ onNavigate, onAuthSuccess }: SignInPageProps) {
           <p className="mt-8 text-center text-sm text-gray-500 dark:text-gray-400">
             Don't have an account?{' '}
             <button
-              onClick={() => onNavigate('signup')}
+              onClick={() => window.open(websiteSignupUrl, '_blank', 'noopener,noreferrer')}
               className="text-blue-600 dark:text-blue-400 hover:text-blue-500 dark:hover:text-blue-300 transition-colors"
             >
               Sign up

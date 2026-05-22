@@ -1,13 +1,8 @@
 import { useState, useEffect, useRef } from 'react';
 import { Navigate, Route, Routes, useLocation, useNavigate } from 'react-router-dom';
 import { Navigation } from '../components/layout/Navigation';
-import { HeroSection } from '../pages/home/HeroSection';
-import { HeroSectionDark } from '../pages/home/HeroSectionDark';
-import { ProblemSolution } from '../pages/home/ProblemSolution';
-import { Features } from '../pages/home/Features';
-import { Testimonials } from '../pages/home/Testimonials';
+import { ExtensionHomePage } from '../pages/home/ExtensionHomePage';
 import { SignInPage } from '../pages/auth/SignInPage';
-import { SignUpPage } from '../pages/auth/SignUpPage';
 import { ForgotPasswordPage } from '../pages/auth/ForgotPasswordPage';
 import { StudentDashboard } from '../pages/dashboard/StudentDashboard';
 import { ChatbotWorkspace } from '../pages/chat/ChatbotWorkspace';
@@ -26,7 +21,6 @@ import { ProtectedRoute } from './ProtectedRoute';
 const PAGE_TO_PATH: Record<string, string> = {
   home: '/',
   signin: '/signin',
-  signup: '/signup',
   'forgot-password': '/forgot-password',
   dashboard: '/dashboard',
   chatbot: '/chatbot',
@@ -47,7 +41,6 @@ const PATH_TO_PAGE = Object.entries(PAGE_TO_PATH).reduce<Record<string, string>>
 
 const SPECIAL_PAGES = new Set([
   'signin',
-  'signup',
   'forgot-password',
   'dashboard',
   'chatbot',
@@ -250,18 +243,7 @@ function AppContent() {
       <Routes>
         <Route
           path="/"
-          element={
-            <>
-              {theme === 'dark' ? (
-                <HeroSectionDark onNavigate={handleNavigate} />
-              ) : (
-                <HeroSection onNavigate={handleNavigate} />
-              )}
-              <ProblemSolution />
-              <Features />
-              <Testimonials />
-            </>
-          }
+          element={<ExtensionHomePage onNavigate={handleNavigate} />}
         />
         <Route
           path="/signin"
@@ -269,7 +251,7 @@ function AppContent() {
         />
         <Route
           path="/signup"
-          element={<SignUpPage onNavigate={handleNavigate} onAuthSuccess={handleAuthSuccess} />}
+          element={<Navigate to="/signin" replace />}
         />
         <Route
           path="/forgot-password"

@@ -32,13 +32,11 @@ import {
   Sparkles,
 } from 'lucide-react';
 import { toast } from 'sonner';
-import { ImageWithFallback } from '../../components/figma/ImageWithFallback';
 import { BACKEND_ROUTES } from '../../config/backend';
 
 interface QuizQuestion {
   id: string;
   question: string;
-  image?: string;
   choices: string[];
   correctAnswer: number;
   explanation: string;
@@ -51,6 +49,8 @@ interface Quiz {
   title: string;
   description: string;
   category: string;
+  topic?: string;
+  sourceType?: QuizSourceType;
   difficulty: 'Beginner' | 'Intermediate' | 'Advanced';
   questions: QuizQuestion[];
   timeLimit?: number; // in seconds
@@ -64,9 +64,13 @@ interface Quiz {
   linkedDocument?: string;
 }
 
+type QuizSourceType = 'Chat' | 'Topic';
+
 interface QuizScreenProps {
   onNavigate: (page: string) => void;
 }
+
+const CHAT_HISTORY_QUIZ_KEY = 'focusspark-chat-history-quiz';
 
 const DIFFICULTY_TIME_LIMITS: Record<Quiz['difficulty'], number> = {
   Beginner: 5 * 60,
@@ -83,6 +87,99 @@ const normalizeDifficulty = (difficulty: unknown): Quiz['difficulty'] => {
 
 const getQuizTimeLimit = (quiz: Pick<Quiz, 'difficulty' | 'timeLimit'>) =>
   quiz.timeLimit ?? DIFFICULTY_TIME_LIMITS[quiz.difficulty];
+
+const isGenericChatQuizTitle = (title: unknown) => {
+  const normalized = String(title ?? '').trim().toLowerCase();
+  return (
+    normalized === '' ||
+    normalized === 'chat quiz' ||
+    normalized === 'quiz' ||
+    normalized === 'chat' ||
+    normalized === 'generated quiz'
+  );
+};
+
+const toQuizHeadingFromQuestion = (question: unknown) => {
+  const text = String(question ?? '').trim();
+  if (!text) return 'Quiz';
+  const heading = text.length > 80 ? `${text.slice(0, 77).trimEnd()}...` : text;
+  return heading.charAt(0).toUpperCase() + heading.slice(1);
+};
+
+const stripTrailingQuizWord = (title: unknown) => {
+  const rawTitle = String(title ?? '').trim();
+  if (!rawTitle) return '';
+  const strippedTitle = rawTitle.replace(/\s+quiz$/i, '').trim();
+  return strippedTitle || rawTitle;
+};
+
+const capitalizeFirstLetter = (value: unknown) => {
+  const text = String(value ?? '').trim();
+  if (!text) return '';
+  return text.charAt(0).toUpperCase() + text.slice(1);
+};
+
+const normalizeQuizTitle = (value: unknown) => capitalizeFirstLetter(stripTrailingQuizWord(value));
+
+const getFirstQuestionTitle = (questions: unknown) => {
+  if (!Array.isArray(questions) || questions.length === 0) return '';
+  const first = questions[0] as Record<string, unknown> | undefined;
+  const question = String(first?.question ?? first?.title ?? '').trim();
+  return question;
+};
+
+const deriveDisplayQuizTitle = ({
+  rawTitle,
+  fallbackTopic,
+  questions,
+}: {
+  rawTitle: unknown;
+  fallbackTopic?: unknown;
+  questions?: unknown;
+}) => {
+  if (!isGenericChatQuizTitle(rawTitle)) {
+    return normalizeQuizTitle(rawTitle);
+  }
+
+  const firstQuestion = getFirstQuestionTitle(questions);
+  if (firstQuestion) return toQuizHeadingFromQuestion(firstQuestion);
+
+  const topic = String(fallbackTopic ?? '').trim();
+  if (topic && topic.toLowerCase() !== 'general') {
+    return normalizeQuizTitle(topic);
+  }
+
+  return 'Untitled Quiz';
+};
+
+const normalizeQuizSourceType = (value: unknown): QuizSourceType | undefined => {
+  const normalized = String(value ?? '').trim().toLowerCase();
+  if (!normalized) return undefined;
+  const tokens = normalized.split(/[^a-z]+/).filter(Boolean);
+  if (tokens.includes('chat')) return 'Chat';
+  if (tokens.includes('topic')) return 'Topic';
+  if (normalized === 'chat') return 'Chat';
+  if (normalized === 'topic') return 'Topic';
+  return undefined;
+};
+
+const getQuizSourceType = (quiz: Pick<Quiz, 'sourceType' | 'category' | 'tags' | 'description'>): QuizSourceType => {
+  if (quiz.sourceType) return quiz.sourceType;
+
+  const category = String(quiz.category ?? '').trim().toLowerCase();
+  const tags = Array.isArray(quiz.tags) ? quiz.tags.map((tag) => String(tag).trim().toLowerCase()) : [];
+
+  if (category === 'chat' || tags.includes('chat')) {
+    return 'Chat';
+  }
+
+  return 'Topic';
+};
+
+const getQuizSourceBadgeClassName = (source: QuizSourceType) =>
+  source === 'Chat'
+    ? 'flashcard-source-badge flashcard-source-badge-chat'
+    : 'flashcard-source-badge flashcard-source-badge-topic';
 
 const normalizeCorrectAnswerIndex = (
   value: unknown,
@@ -157,7 +254,6 @@ const mapQuizQuestion = (question: any): QuizQuestion => {
   const mappedQuestion = {
     id: String(question.id),
     question: question.question,
-    image: question.image_url || question.image,
     choices,
     correctAnswer: normalizeCorrectAnswer(question, choices),
     explanation: question.explanation || '',
@@ -185,6 +281,7 @@ const mapQuizQuestion = (question: any): QuizQuestion => {
 
 export function QuizScreen({ onNavigate }: QuizScreenProps) {
   const chromeApi = (globalThis as typeof globalThis & { chrome?: any }).chrome;
+  const academicFocus = localStorage.getItem('focusspark-academic-focus') || 'General';
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedQuiz, setSelectedQuiz] = useState<Quiz | null>(null);
   const [currentQuestionIndex, setCurrentQuestionIndex] = useState(0);
@@ -269,6 +366,10 @@ export function QuizScreen({ onNavigate }: QuizScreenProps) {
       const authHeaders = await getAuthHeaders();
       const res = await backendClient.get(BACKEND_ROUTES.quiz, { headers: authHeaders });
       const data = Array.isArray(res.data) ? res.data : [];
+      if (import.meta.env.DEV) {
+        // eslint-disable-next-line no-console
+        console.debug('[QuizScreen] fetchQuizzes response', { status: res.status, dataLength: data.length, rawData: res.data });
+      }
       const mapped = data.map((q: any) => {
         const questionCount =
           q.total_questions ??
@@ -278,9 +379,20 @@ export function QuizScreen({ onNavigate }: QuizScreenProps) {
 
         return {
           id: String(q.id),
-          title: q.title || 'Untitled Quiz',
+          title: deriveDisplayQuizTitle({
+            rawTitle: q.title,
+            fallbackTopic: q.topic ?? q.category,
+            questions: q.questions,
+          }),
           description: q.description || '',
           category: q.category || q.topic || 'General',
+          topic: q.topic || q.category || 'General',
+          sourceType:
+            normalizeQuizSourceType(q.sourceType) ||
+            normalizeQuizSourceType(q.source_type) ||
+            normalizeQuizSourceType(q.source) ||
+            normalizeQuizSourceType(q.origin) ||
+            normalizeQuizSourceType(q.generated_from),
           difficulty: normalizeDifficulty(q.difficulty),
           timeLimit: q.time_limit_seconds ?? undefined,
           passingScore: q.passing_score ?? 0,
@@ -310,6 +422,147 @@ export function QuizScreen({ onNavigate }: QuizScreenProps) {
 
   useEffect(() => {
     void fetchQuizzes();
+  }, []);
+
+  useEffect(() => {
+    const rawPendingQuiz = sessionStorage.getItem(CHAT_HISTORY_QUIZ_KEY);
+    if (!rawPendingQuiz) return;
+
+    sessionStorage.removeItem(CHAT_HISTORY_QUIZ_KEY);
+
+    try {
+      const payload = JSON.parse(rawPendingQuiz) as {
+        id?: string;
+        quizId?: string | number;
+        title?: string;
+        topic?: string;
+        description?: string;
+        questions?: Array<{
+          id?: string;
+          question?: string;
+          options?: string[];
+          choices?: string[];
+          correctAnswer?: number;
+          correct_answer?: number;
+          correct_answer_index?: number;
+          explanation?: string;
+        }>;
+      };
+      const pendingQuizId = payload.quizId ?? payload.id;
+      if (pendingQuizId && Number.isFinite(Number(pendingQuizId))) {
+        void (async () => {
+          try {
+            const authHeaders = await getAuthHeaders();
+            const [quizzesResponse, questionsResponse] = await Promise.all([
+              backendClient.get(BACKEND_ROUTES.quiz, { headers: authHeaders }),
+              backendClient.get(`${BACKEND_ROUTES.quiz}/${pendingQuizId}`, { headers: authHeaders }),
+            ]);
+            const quizList = Array.isArray(quizzesResponse.data) ? quizzesResponse.data : [];
+            const quizMeta = quizList.find((quiz: any) => String(quiz.id) === String(pendingQuizId)) ?? {};
+            const rawQuestions = Array.isArray(questionsResponse.data)
+              ? questionsResponse.data
+              : Array.isArray(questionsResponse.data?.questions)
+                ? questionsResponse.data.questions
+                : [];
+            const questions = rawQuestions.map(mapQuizQuestion);
+
+            if (questions.length === 0) {
+              toast.error('This quiz has no questions yet.');
+              return;
+            }
+
+            const pendingQuiz: Quiz = {
+              id: String(pendingQuizId),
+              title: deriveDisplayQuizTitle({
+                rawTitle: payload.title ?? quizMeta.title,
+                fallbackTopic: payload.topic ?? quizMeta.topic ?? quizMeta.category,
+                questions,
+              }),
+              description: payload.description || quizMeta.description || 'Quiz generated from chat history.',
+              category: quizMeta.category || payload.topic || quizMeta.topic || 'Chat',
+              topic: payload.topic || quizMeta.topic || quizMeta.category || 'Chat',
+              sourceType:
+                normalizeQuizSourceType(quizMeta.sourceType) ||
+                normalizeQuizSourceType(quizMeta.source_type) ||
+                normalizeQuizSourceType(quizMeta.source) ||
+                'Chat',
+              difficulty: normalizeDifficulty(quizMeta.difficulty),
+              questions,
+              timeLimit: quizMeta.time_limit_seconds ?? undefined,
+              passingScore: quizMeta.passing_score ?? 0,
+              totalAttempts: quizMeta.total_attempts ?? 0,
+              questionCount: questions.length,
+              bestScore: quizMeta.best_score ?? 0,
+              averageScore: quizMeta.average_score ?? 0,
+              tags: Array.isArray(quizMeta.tags) ? quizMeta.tags : ['chat'],
+              linkedDocument: quizMeta.linked_document_id ? String(quizMeta.linked_document_id) : undefined,
+            };
+
+            setSelectedQuiz(pendingQuiz);
+            setCurrentQuestionIndex(0);
+            setShowFeedback(false);
+            setIsSubmitted(false);
+            setShowSummary(false);
+            setTimerEnabled(true);
+            startAttemptTimer();
+            enableQuizStrictMode();
+          } catch {
+            toast.error('Could not open the saved quiz from chat history.');
+          }
+        })();
+        return;
+      }
+
+      const questions = (payload.questions ?? [])
+        .map((question, index): QuizQuestion => {
+          const choices = Array.isArray(question.choices)
+            ? question.choices
+            : Array.isArray(question.options)
+              ? question.options
+              : [];
+
+          return {
+            id: String(question.id ?? `chat-history-question-${index}`),
+            question: String(question.question ?? ''),
+            choices,
+            correctAnswer: normalizeCorrectAnswer(question, choices),
+            explanation: String(question.explanation ?? ''),
+            topic: 'Chat',
+          };
+        })
+        .filter((question) => question.question.length > 0 && question.choices.length > 0);
+
+      if (questions.length === 0) return;
+
+      const pendingQuiz: Quiz = {
+        id: String(payload.id ?? `chat-history-quiz-${Date.now()}`),
+        title: isGenericChatQuizTitle(payload.title)
+          ? toQuizHeadingFromQuestion(questions[0]?.question)
+          : String(payload.title),
+        description: payload.description || 'Quiz generated from chat history.',
+        category: 'Chat',
+        sourceType: 'Chat',
+        difficulty: 'Beginner',
+        questions,
+        passingScore: 0,
+        totalAttempts: 0,
+        questionCount: questions.length,
+        bestScore: 0,
+        averageScore: 0,
+        tags: ['chat'],
+      };
+
+      setSelectedQuiz(pendingQuiz);
+      setCurrentQuestionIndex(0);
+      setShowFeedback(false);
+      setIsSubmitted(false);
+      setShowSummary(false);
+      setTimerEnabled(true);
+      startAttemptTimer();
+      enableQuizStrictMode();
+    } catch {
+      toast.error('Could not open the generated quiz from chat history.');
+    }
   }, []);
  
 
@@ -556,9 +809,21 @@ export function QuizScreen({ onNavigate }: QuizScreenProps) {
 
           const fullQuiz: Quiz = {
             id: String(full.id ?? quiz.id),
-            title: full.title || quiz.title,
+            title: deriveDisplayQuizTitle({
+              rawTitle: full.title ?? quiz.title,
+              fallbackTopic: full.topic ?? full.category ?? quiz.category,
+              questions: questionsSource,
+            }),
             description: full.description || quiz.description,
             category: full.category || full.topic || quiz.category,
+            topic: full.topic || full.category || quiz.topic || quiz.category,
+            sourceType:
+              normalizeQuizSourceType(full.sourceType) ||
+              normalizeQuizSourceType(full.source_type) ||
+              normalizeQuizSourceType(full.source) ||
+              normalizeQuizSourceType(full.origin) ||
+              normalizeQuizSourceType(full.generated_from) ||
+              quiz.sourceType,
             difficulty: normalizeDifficulty(full.difficulty || quiz.difficulty),
             timeLimit: full.time_limit_seconds ?? quiz.timeLimit,
             passingScore: full.passing_score ?? quiz.passingScore ?? 0,
@@ -673,14 +938,28 @@ export function QuizScreen({ onNavigate }: QuizScreenProps) {
       // Refetch quizzes to show newly created quiz
       await fetchQuizzes();
       // If backend returns created quiz id, optionally open it
-      const created = res.data;
+      const createdBundle = res.data;
+      const created = createdBundle?.quiz ?? createdBundle;
+      const createdQuestions = Array.isArray(createdBundle?.questions) ? createdBundle.questions : created?.questions;
       if (created?.id) {
         // navigate to the newly created quiz details
         const createdQuiz: Quiz = {
           id: String(created.id),
-          title: created.title ?? `Quiz: ${newTopic}`,
+          title: deriveDisplayQuizTitle({
+            rawTitle: created.title,
+            fallbackTopic: created.topic ?? created.category ?? newTopic,
+              questions: createdQuestions,
+          }),
           description: created.description ?? '',
           category: created.category ?? newTopic,
+          topic: created.topic ?? created.category ?? newTopic,
+          sourceType:
+            normalizeQuizSourceType(created.sourceType) ||
+            normalizeQuizSourceType(created.source_type) ||
+            normalizeQuizSourceType(created.source) ||
+            normalizeQuizSourceType(created.origin) ||
+            normalizeQuizSourceType(created.generated_from) ||
+            'Topic',
           difficulty: normalizeDifficulty(created.difficulty || newDifficulty),
           timeLimit: created.time_limit_seconds ?? undefined,
           passingScore: created.passing_score ?? 0,
@@ -688,13 +967,13 @@ export function QuizScreen({ onNavigate }: QuizScreenProps) {
           questionCount:
             created.total_questions ??
             created.question_count ??
-            (Array.isArray(created.questions) ? created.questions.length : 0),
+            (Array.isArray(createdQuestions) ? createdQuestions.length : 0),
           bestScore: created.best_score ?? 0,
           averageScore: created.average_score ?? 0,
           lastAttempted: created.created_at ? new Date(created.created_at) : undefined,
           tags: Array.isArray(created.tags) ? created.tags : [],
           linkedDocument: created.linked_document_id ? String(created.linked_document_id) : undefined,
-          questions: [],
+          questions: Array.isArray(createdQuestions) ? createdQuestions.map((question: any) => mapQuizQuestion(question)) : [],
         };
         // open the created quiz
         handleStartQuiz(createdQuiz);
@@ -764,9 +1043,14 @@ export function QuizScreen({ onNavigate }: QuizScreenProps) {
                 <Home className="w-5 h-5" />
               </Button>
               <div>
-                <h1 className="quiz-title">
-                  {selectedQuiz ? selectedQuiz.title : 'Available Quizzes'}
-                </h1>
+                <div className="flex items-center gap-3">
+                  <h1 className="quiz-title">{selectedQuiz ? selectedQuiz.title : 'Available Quizzes'}</h1>
+                  {selectedQuiz && (
+                    <Badge variant="secondary" className="text-sm">
+                      {capitalizeFirstLetter(selectedQuiz.category || 'General')}
+                    </Badge>
+                  )}
+                </div>
                 {selectedQuiz ? (
                   <p className="quiz-subtitle">{selectedQuiz.description}</p>
                 ) : (
@@ -926,25 +1210,37 @@ export function QuizScreen({ onNavigate }: QuizScreenProps) {
                       ? 'Try a different title, category, or tag.'
                       : 'Create a quiz to start practicing.'}
                   </p>
+                  <div className="mt-4 flex justify-center">
+                    <Button variant="outline" onClick={() => void fetchQuizzes()}>
+                      <RotateCcw className="w-4 h-4 mr-2" />
+                      Refresh
+                    </Button>
+                  </div>
                 </CardContent>
               </Card>
             ) : (
               filteredQuizzes.map((quiz, index) => (
               <motion.div
                 key={quiz.id}
+                className="h-full"
                 initial={{ opacity: 0, y: 20 }}
                 animate={{ opacity: 1, y: 0 }}
                 transition={{ delay: index * 0.1 }}
               >
-                <Card className="quiz-selection-card" onClick={() => handleStartQuiz(quiz)}>
-                  <CardHeader>
+                <Card className="quiz-selection-card flex h-full flex-col" onClick={() => handleStartQuiz(quiz)}>
+                  <CardHeader className="min-h-[116px]">
                     <div className="quiz-selection-header">
                       <CardTitle className="quiz-selection-title">{quiz.title}</CardTitle>
-                      <Badge
-                        className={`quiz-difficulty-badge ${getDifficultyClass(quiz.difficulty)}`}
-                      >
-                        {quiz.difficulty}
-                      </Badge>
+                      <div className="flex items-center gap-2">
+                        <Badge className={getQuizSourceBadgeClassName(getQuizSourceType(quiz))}>
+                          {getQuizSourceType(quiz)}
+                        </Badge>
+                        <Badge
+                          className={`quiz-difficulty-badge ${getDifficultyClass(quiz.difficulty)}`}
+                        >
+                          {quiz.difficulty}
+                        </Badge>
+                      </div>
                     </div>
                     <p className="quiz-selection-description">{quiz.description}</p>
                     <div className="quiz-selection-tags">
@@ -956,7 +1252,7 @@ export function QuizScreen({ onNavigate }: QuizScreenProps) {
                     </div>
                   </CardHeader>
 
-                  <CardContent className="space-y-4">
+                  <CardContent className="flex flex-1 flex-col space-y-4">
                     {/* Stats Grid */}
                     <div className="grid grid-cols-2 gap-3 text-sm">
                       <div className="quiz-stat-item">
@@ -1011,7 +1307,7 @@ export function QuizScreen({ onNavigate }: QuizScreenProps) {
                     <div className="quiz-additional-info">
                       <div className="flex justify-between text-xs">
                         <span className="quiz-info-label">Category:</span>
-                        <span className="quiz-info-value">{quiz.category}</span>
+                        <span className="quiz-info-value">{academicFocus}</span>
                       </div>
                       <div className="flex justify-between text-xs">
                         <span className="quiz-info-label">Passing Score:</span>
@@ -1060,16 +1356,6 @@ export function QuizScreen({ onNavigate }: QuizScreenProps) {
                 </CardHeader>
 
                 <CardContent className="space-y-6">
-                  {currentQuestion?.image && (
-                    <div className="quiz-image-container">
-                      <ImageWithFallback
-                        src={currentQuestion.image}
-                        alt="Question illustration"
-                        className="w-full h-64 object-cover"
-                      />
-                    </div>
-                  )}
-
                   {/* Choices */}
                   <RadioGroup
                     value={currentAnswer?.toString()}
