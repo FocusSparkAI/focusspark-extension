@@ -785,63 +785,6 @@ export function ChatbotWorkspace({ onNavigate }: ChatbotWorkspaceProps = {}) {
     }
   };
 
-  const generateSampleFlashcards = (): Flashcard[] => {
-    return [
-      {
-        id: '1',
-        title: 'Quantum Mechanics',
-        front: 'What is the Heisenberg Uncertainty Principle?',
-        back: 'It states that you cannot simultaneously know both the exact position and exact momentum of a particle.',
-        example: 'Like trying to measure the exact speed of a moving car while pinpointing its exact location at the same instant.',
-        memoryTip: 'Think: "Heisen-BLUR" - the more precisely you know one thing, the blurrier the other becomes',
-        examShortcut: 'Delta x * Delta p >= h-bar / 2',
-        tags: ['physics', 'quantum', 'core-concept'],
-        difficulty: 'hard',
-        known: false,
-      },
-      {
-        id: '2',
-        title: 'Photosynthesis',
-        front: 'What are the two main stages of photosynthesis?',
-        back: 'Light-dependent reactions (in thylakoids) and Light-independent reactions / Calvin Cycle (in stroma)',
-        example: 'Stage 1: Sun energy to ATP. Stage 2: ATP to Glucose',
-        memoryTip: 'Light first, then Dark. L comes before D in alphabet!',
-        tags: ['biology', 'plants', 'energy'],
-        difficulty: 'medium',
-        known: false,
-      },
-      {
-        id: '3',
-        title: 'Mitochondria',
-        front: 'Why is mitochondria called the powerhouse of the cell?',
-        back: 'Because it produces ATP through cellular respiration, which is the main energy currency of the cell.',
-        memoryTip: 'Might-o-chondria = Mighty power!',
-        tags: ['biology', 'cell', 'energy'],
-        difficulty: 'easy',
-        known: false,
-      },
-    ];
-  };
-
-  const generateSampleQuiz = (): QuizQuestion[] => {
-    return [
-      {
-        id: '1',
-        question: 'Which organelle is responsible for protein synthesis?',
-        options: ['Mitochondria', 'Ribosome', 'Nucleus', 'Golgi Apparatus'],
-        correctAnswer: 1,
-        explanation: 'Ribosomes are the cellular machinery responsible for translating mRNA into proteins.',
-      },
-      {
-        id: '2',
-        question: 'What is the powerhouse of the cell?',
-        options: ['Nucleus', 'Ribosome', 'Mitochondria', 'ER'],
-        correctAnswer: 2,
-        explanation: 'Mitochondria produce ATP through cellular respiration.',
-      },
-    ];
-  };
-
   const openFilePicker = (accept: string) => {
     setFileAccept(accept);
     window.setTimeout(() => fileInputRef.current?.click(), 0);
@@ -999,7 +942,7 @@ export function ChatbotWorkspace({ onNavigate }: ChatbotWorkspaceProps = {}) {
         }))
         .filter((card) => card.front.length > 0 && card.back.length > 0);
     } catch {
-      return generateSampleFlashcards();
+      return [];
     }
   };
 
@@ -1026,7 +969,7 @@ export function ChatbotWorkspace({ onNavigate }: ChatbotWorkspaceProps = {}) {
         }))
         .filter((question) => question.question.length > 0 && question.options.length > 0);
     } catch {
-      return generateSampleQuiz();
+      return [];
     }
   };
 
@@ -1057,6 +1000,10 @@ export function ChatbotWorkspace({ onNavigate }: ChatbotWorkspaceProps = {}) {
       }
 
       const flashcards = mapFlashcardsResponse(response.text);
+      if (flashcards.length === 0) {
+        throw new Error('The server returned flashcards in an unexpected format.');
+      }
+
       const flashcardMessage: Message = {
         id: Date.now().toString(),
         type: 'flashcard',
@@ -1110,6 +1057,10 @@ export function ChatbotWorkspace({ onNavigate }: ChatbotWorkspaceProps = {}) {
       }
 
       const quizData = mapQuizResponse(response.text);
+      if (quizData.length === 0) {
+        throw new Error('The server returned quiz questions in an unexpected format.');
+      }
+
       const quizMessage: Message = {
         id: Date.now().toString(),
         type: 'quiz',

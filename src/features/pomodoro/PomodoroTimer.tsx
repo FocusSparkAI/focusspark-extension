@@ -1,8 +1,9 @@
-import { type ReactNode, useEffect, useState } from 'react';
+import { type ReactNode, useEffect, useMemo, useState } from 'react';
 import { CheckCircle2, Clock, Pause, Play, SkipForward, Zap } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '../../components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '../../components/ui/card';
+import { usePomodoro } from '../../context/PomodoroContext';
 
 interface PomodoroTimerProps {
   focusMinutes?: number;
@@ -22,12 +23,21 @@ export function PomodoroTimer({
   const [time, setTime] = useState(focusSeconds);
   const [isActive, setIsActive] = useState(false);
   const [isBreak, setIsBreak] = useState(false);
+  const { sessions } = usePomodoro();
 
-  const sessions = [
-    { id: 1, duration: `${focusMinutes}m`, completed: true },
-    { id: 2, duration: `${focusMinutes}m`, completed: true },
-    { id: 3, duration: `${focusMinutes}m`, completed: false },
-  ];
+  const todaySessions = useMemo(() => {
+    const today = new Date().toDateString();
+
+    return sessions
+      .filter((session) => session.startTime.toDateString() === today)
+      .slice(0, 3)
+      .map((session, index) => ({
+        id: session.id,
+        label: `#${index + 1}`,
+        duration: `${session.focusMinutes}m`,
+        completed: session.completed,
+      }));
+  }, [sessions]);
 
   useEffect(() => {
     let interval: number | null = null;
@@ -141,21 +151,27 @@ export function PomodoroTimer({
 
         <div>
           <p className="mb-2 text-sm text-secondary">Today</p>
-          <div className="grid grid-cols-3 gap-2">
-            {sessions.map((session) => (
-              <div key={session.id} className="rounded-lg border border-border bg-background p-3">
-                <div className="flex items-center justify-between">
-                  <span className="text-xs text-secondary">#{session.id}</span>
-                  {session.completed ? (
-                    <CheckCircle2 className="h-4 w-4 text-emerald-500" />
-                  ) : (
-                    <div className="h-4 w-4 rounded-full border border-border" />
-                  )}
+          {todaySessions.length > 0 ? (
+            <div className="grid grid-cols-3 gap-2">
+              {todaySessions.map((session) => (
+                <div key={session.id} className="rounded-lg border border-border bg-background p-3">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs text-secondary">{session.label}</span>
+                    {session.completed ? (
+                      <CheckCircle2 className="h-4 w-4 text-emerald-500" />
+                    ) : (
+                      <div className="h-4 w-4 rounded-full border border-border" />
+                    )}
+                  </div>
+                  <p className="mt-2 text-sm font-medium">{session.duration}</p>
                 </div>
-                <p className="mt-2 text-sm font-medium">{session.duration}</p>
-              </div>
-            ))}
-          </div>
+              ))}
+            </div>
+          ) : (
+            <div className="rounded-lg border border-dashed border-border bg-background p-3 text-sm text-secondary">
+              No sessions yet
+            </div>
+          )}
         </div>
       </CardContent>
     </Card>

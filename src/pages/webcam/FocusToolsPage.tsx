@@ -104,6 +104,7 @@ const emotionContent: Record<
   EmotionState,
   {
     label: string;
+    description: string;
     panelClassName: string;
     textClassName: string;
     Icon: typeof Smile;
@@ -111,24 +112,28 @@ const emotionContent: Record<
 > = {
   happy: {
     label: 'Happy',
+    description: 'Backend emotion detection currently reports a positive expression.',
     panelClassName: 'border-blue-500/30 bg-blue-500/10',
     textClassName: 'text-blue-500',
     Icon: Smile,
   },
   tired: {
     label: 'Tired',
+    description: 'Backend emotion detection currently reports a low-energy expression.',
     panelClassName: 'border-amber-500/30 bg-amber-500/10',
     textClassName: 'text-amber-500',
     Icon: Meh,
   },
   neutral: {
     label: 'Neutral',
+    description: 'Backend emotion detection currently reports a neutral expression.',
     panelClassName: 'border-slate-500/25 bg-slate-500/10',
     textClassName: 'text-slate-500 dark:text-slate-300',
     Icon: Meh,
   },
   sad: {
     label: 'Sad',
+    description: 'Backend emotion detection currently reports a sad expression.',
     panelClassName: 'border-rose-500/30 bg-rose-500/10',
     textClassName: 'text-rose-500',
     Icon: Frown,

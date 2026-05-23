@@ -15,7 +15,6 @@ interface SignInPageProps {
 }
 
 export function SignInPage({ onNavigate, onAuthSuccess }: SignInPageProps) {
-  const websiteSignupUrl = 'https://www.google.com/';
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
@@ -41,6 +40,33 @@ export function SignInPage({ onNavigate, onAuthSuccess }: SignInPageProps) {
     return Object.keys(newErrors).length === 0;
   };
 
+  const getLoginErrorMessage = (err: any) => {
+    const status = err?.response?.status;
+    const backendMessage =
+      err?.response?.data?.message ||
+      err?.response?.data?.detail ||
+      err?.response?.data?.error ||
+      '';
+    const normalizedMessage = String(backendMessage).toLowerCase();
+
+    if (
+      status === 404 ||
+      normalizedMessage.includes('user not found') ||
+      normalizedMessage.includes('user does not exist') ||
+      normalizedMessage.includes("user doesn't exist") ||
+      normalizedMessage.includes('account not found') ||
+      normalizedMessage.includes('no user')
+    ) {
+      return 'No account found with this email. Please sign up first.';
+    }
+
+    if (status === 401 || normalizedMessage.includes('invalid')) {
+      return 'Invalid email or password. Please try again.';
+    }
+
+    return backendMessage || err?.message || 'Login failed. Please try again.';
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     
@@ -61,8 +87,7 @@ export function SignInPage({ onNavigate, onAuthSuccess }: SignInPageProps) {
         toast.error('Login failed');
       }
     } catch (err: any) {
-      const msg = err?.response?.data?.detail || err.message || 'Login failed';
-      toast.error(String(msg));
+      toast.error(getLoginErrorMessage(err));
     } finally {
       setIsLoading(false);
     }
@@ -73,7 +98,7 @@ export function SignInPage({ onNavigate, onAuthSuccess }: SignInPageProps) {
   };
 
   return (
-    <div className="auth-page-bg sign-in-page min-h-screen flex items-center justify-center px-6 py-20 relative overflow-hidden">
+    <div className="min-h-screen flex items-center justify-center px-6 py-12 bg-background relative overflow-hidden">
       {/* Background Particles */}
       <div className="absolute inset-0 overflow-hidden pointer-events-none">
         {[...Array(20)].map((_, i) => (
@@ -104,50 +129,50 @@ export function SignInPage({ onNavigate, onAuthSuccess }: SignInPageProps) {
         className="w-full max-w-md relative z-10"
       >
         {/* Glass Card */}
-        <div className="auth-card rounded-2xl p-8 md:p-10">
+        <div className="bg-card border border-border rounded-2xl p-6 md:p-8 shadow-2xl">
           {/* Header */}
-          <div className="text-center mb-8">
+          <div className="text-center mb-6">
             <motion.div
               initial={{ scale: 0 }}
               animate={{ scale: 1 }}
               transition={{ delay: 0.2, type: 'spring', stiffness: 200 }}
-              className="inline-block mb-4"
+              className="inline-block mb-3"
             >
-              <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-blue-500 to-purple-600 flex items-center justify-center glow-blue-purple">
+              <div className="w-14 h-14 rounded-2xl bg-gradient-to-br from-blue-500 to-purple-600 flex items-center justify-center glow-blue-purple">
                 <Sparkles className="w-8 h-8 text-white" />
               </div>
             </motion.div>
             
-            <h1 className="text-3xl text-gray-900 dark:text-white mb-2">Welcome Back</h1>
-            <p className="auth-subtitle">
+            <h1 className="text-3xl mb-2">Welcome Back</h1>
+            <p className="text-muted-foreground">
               Sign in to continue your learning journey
             </p>
           </div>
 
           {/* Sign In Form */}
-          <form onSubmit={handleSubmit} className="space-y-6">
+          <form onSubmit={handleSubmit} className="space-y-4">
             {/* Email Field */}
             <div>
-              <Label htmlFor="email" className="text-gray-700 dark:text-gray-300">Email</Label>
+              <Label htmlFor="email">Email</Label>
               <div className="relative mt-2">
-                <Mail className="absolute left-3 top-1/2 transform -translate-y-1/2 w-5 h-5 text-gray-400" />
+                <Mail className="absolute left-3 top-1/2 transform -translate-y-1/2 w-5 h-5 text-muted-foreground" />
                 <Input
                   id="email"
-                  type="text"
+                  type="email"
                   inputMode="email"
                   autoComplete="email"
                   spellCheck={false}
                   placeholder="you@example.com"
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
-                  className="auth-input pl-10"
+                  className="pl-10 bg-input-background border-border"
                 />
               </div>
               {errors.email && (
                 <motion.p
                   initial={{ opacity: 0, y: -10 }}
                   animate={{ opacity: 1, y: 0 }}
-                  className="text-red-500 text-sm mt-1"
+                  className="text-destructive text-sm mt-1"
                 >
                   {errors.email}
                 </motion.p>
@@ -156,21 +181,21 @@ export function SignInPage({ onNavigate, onAuthSuccess }: SignInPageProps) {
 
             {/* Password Field */}
             <div>
-              <Label htmlFor="password" className="text-gray-700 dark:text-gray-300">Password</Label>
+              <Label htmlFor="password">Password</Label>
               <div className="relative mt-2">
-                <Lock className="absolute left-3 top-1/2 transform -translate-y-1/2 w-5 h-5 text-gray-400" />
+                <Lock className="absolute left-3 top-1/2 transform -translate-y-1/2 w-5 h-5 text-muted-foreground" />
                 <Input
                   id="password"
                   type={showPassword ? 'text' : 'password'}
                   placeholder="Password"
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
-                  className="auth-input auth-password-input pl-10 pr-12"
+                  className="pl-10 pr-10 bg-input-background border-border"
                 />
                 <button
                   type="button"
                   onClick={() => setShowPassword(!showPassword)}
-                  className="absolute right-3 top-1/2 transform -translate-y-1/2 text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 transition-colors"
+                  className="absolute right-3 top-1/2 transform -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors"
                 >
                   {showPassword ? (
                     <EyeOff className="w-5 h-5" />
@@ -183,7 +208,7 @@ export function SignInPage({ onNavigate, onAuthSuccess }: SignInPageProps) {
                 <motion.p
                   initial={{ opacity: 0, y: -10 }}
                   animate={{ opacity: 1, y: 0 }}
-                  className="text-red-500 text-sm mt-1"
+                  className="text-destructive text-sm mt-1"
                 >
                   {errors.password}
                 </motion.p>
@@ -195,7 +220,7 @@ export function SignInPage({ onNavigate, onAuthSuccess }: SignInPageProps) {
               <button
                 type="button"
                 onClick={() => onNavigate('forgot-password')}
-                className="text-sm text-blue-600 dark:text-blue-400 hover:text-blue-500 dark:hover:text-blue-300 transition-colors"
+                className="text-sm text-blue-400 hover:text-blue-300 transition-colors"
               >
                 Forgot password?
               </button>
@@ -205,7 +230,7 @@ export function SignInPage({ onNavigate, onAuthSuccess }: SignInPageProps) {
             <Button
               type="submit"
               disabled={isLoading}
-              className="w-full bg-gradient-to-r from-blue-500 to-purple-600 text-white hover:opacity-90 transition-all"
+              className="w-full bg-gradient-to-r from-blue-500 to-purple-600 hover:opacity-90 transition-all"
               size="lg"
             >
               {isLoading ? (
@@ -220,13 +245,10 @@ export function SignInPage({ onNavigate, onAuthSuccess }: SignInPageProps) {
           </form>
 
           {/* Divider */}
-          <div className="relative my-8">
-            <div className="absolute inset-0 flex items-center">
-              <div className="w-full border-t border-gray-200 dark:border-white/10"></div>
-            </div>
-            <div className="relative flex justify-center text-sm">
-              <span className="auth-divider-label px-4">Or continue with</span>
-            </div>
+          <div className="mt-8 mb-4 flex items-center gap-6 text-sm text-muted-foreground">
+            <div className="h-px flex-1 bg-border" />
+            <span className="whitespace-nowrap leading-none">Or continue with</span>
+            <div className="h-px flex-1 bg-border" />
           </div>
 
           {/* Google Sign In */}
@@ -234,7 +256,7 @@ export function SignInPage({ onNavigate, onAuthSuccess }: SignInPageProps) {
             type="button"
             variant="outline"
             onClick={handleGoogleSignIn}
-            className="auth-google-button w-full h-12"
+            className="w-full bg-white text-black hover:bg-gray-100 border-2 py-5"
             size="lg"
           >
             <svg className="w-5 h-5 mr-2" viewBox="0 0 24 24" aria-hidden="true">
@@ -259,11 +281,11 @@ export function SignInPage({ onNavigate, onAuthSuccess }: SignInPageProps) {
           </Button>
 
           {/* Sign Up Link */}
-          <p className="mt-8 text-center text-sm text-gray-500 dark:text-gray-400">
+          <p className="mt-6 text-center text-sm text-muted-foreground">
             Don't have an account?{' '}
             <button
-              onClick={() => window.open(websiteSignupUrl, '_blank', 'noopener,noreferrer')}
-              className="text-blue-600 dark:text-blue-400 hover:text-blue-500 dark:hover:text-blue-300 transition-colors"
+              onClick={() => onNavigate('signup')}
+              className="text-blue-400 hover:text-blue-300 transition-colors"
             >
               Sign up
             </button>
@@ -271,10 +293,10 @@ export function SignInPage({ onNavigate, onAuthSuccess }: SignInPageProps) {
         </div>
 
         {/* Back to Home */}
-        <div className="text-center mt-6">
+        <div className="text-center mt-4">
           <button
             onClick={() => onNavigate('home')}
-            className="text-sm text-gray-500 hover:text-gray-800 dark:hover:text-gray-200 transition-colors"
+            className="text-sm text-muted-foreground hover:text-foreground transition-colors"
           >
             ← Back to Home
           </button>

@@ -30,6 +30,12 @@ export const BACKEND_ROUTES = {
   quizGenerate: '/quiz/generate',
   quizFromChat: '/quiz/from-chat',
   quizAttempts: '/quiz/{quiz_id}/attempts', // replace {quiz_id}
+
+  // Study notifications
+  studyNotifications: '/study/notifications',
+  studyNotification: '/study/notifications/{notification_id}', // replace {notification_id}
+  studyNotificationsReadAll: '/study/notifications/read-all',
+  studyDashboardStats: '/study/stats/dashboard',
 } as const;
 
 export function buildBackendUrl(path: string): string {

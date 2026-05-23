@@ -21,6 +21,7 @@ import { ProtectedRoute } from './ProtectedRoute';
 const PAGE_TO_PATH: Record<string, string> = {
   home: '/',
   signin: '/signin',
+  signup: '/signup',
   'forgot-password': '/forgot-password',
   dashboard: '/dashboard',
   chatbot: '/chatbot',

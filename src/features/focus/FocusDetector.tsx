@@ -1,29 +1,29 @@
-import React, { useState, useRef, useEffect } from 'react';
-import { Camera, CameraOff, Eye, EyeOff, AlertCircle } from 'lucide-react';
+import React, { useEffect, useRef, useState } from 'react';
+import { AlertCircle, Camera, CameraOff, Eye, EyeOff } from 'lucide-react';
+import { toast } from 'sonner';
 import { Button } from '../../components/ui/button';
 import { useFocus } from '../../context/FocusContext';
-import { toast } from 'sonner';
 import { BACKEND_ROUTES, buildBackendUrl } from '../../config/backend';
-
-// TODO: Replace MODEL_URL with backend-served model endpoint before production.
-const BACKEND_MODEL_URL = buildBackendUrl(BACKEND_ROUTES.faceApiWeights);
-const FALLBACK_MODEL_URL = 'https://raw.githubusercontent.com/justadudewhohacks/face-api.js/master/weights';
 
 interface FocusDetectorProps {
   variant?: 'full' | 'compact' | 'hidden';
   autoStart?: boolean;
-  demoMode?: boolean; // NEW: Enable automatic state cycling for demo
 }
 
-export const FocusDetector: React.FC<FocusDetectorProps> = ({ variant = 'full', autoStart = false, demoMode = true }) => {
+type FocusStatus = 'idle' | 'loading' | 'active' | 'focused' | 'unfocused' | 'error';
+
+export const FocusDetector: React.FC<FocusDetectorProps> = ({
+  variant = 'full',
+  autoStart = false,
+}) => {
   const { setIsFocused, isDetectionEnabled, setFocusScore } = useFocus();
-  const [status, setStatus] = useState<'idle' | 'loading' | 'active' | 'focused' | 'unfocused' | 'error'>('idle');
+  const [status, setStatus] = useState<FocusStatus>('idle');
   const [isProcessing, setIsProcessing] = useState(false);
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const detectIntervalRef = useRef<number | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
-  const demoIntervalRef = useRef<number | null>(null);
+  const analysisInFlightRef = useRef(false);
 
   const startWebcam = async () => {
     try {
@@ -35,15 +35,14 @@ export const FocusDetector: React.FC<FocusDetectorProps> = ({ variant = 'full', 
         videoRef.current.srcObject = stream;
       }
     } catch (err: any) {
-      // Silently handle error - user will see toast notification
       setStatus('error');
       setIsFocused(false);
       setIsProcessing(false);
-      
-      // Show user-friendly error message
+
       if (err.name === 'NotAllowedError' || err.name === 'PermissionDeniedError') {
         toast.error('Camera Access Denied', {
-          description: 'Please allow camera access in your browser settings to use focus detection. Click the camera icon in your address bar.',
+          description:
+            'Please allow camera access in your browser settings to use focus detection. Click the camera icon in your address bar.',
           duration: 6000,
         });
       } else if (err.name === 'NotFoundError' || err.name === 'DevicesNotFoundError') {
@@ -57,128 +56,95 @@ export const FocusDetector: React.FC<FocusDetectorProps> = ({ variant = 'full', 
           duration: 5000,
         });
       }
-      
-      throw err; // Re-throw to be caught by handleStart
+
+      throw err;
     }
   };
 
-  // Demo mode: Cycle through different focus states automatically
-  const startDemoMode = () => {
-    if (demoIntervalRef.current) clearInterval(demoIntervalRef.current);
-    
-    // Define demo state cycle: Focused -> Idle -> Attention Needed -> Focused
-    const demoStates = [
-      { focused: true, score: 85, status: 'focused' as const },  // Focused
-      { focused: false, score: 55, status: 'active' as const },  // Idle
-      { focused: false, score: 25, status: 'unfocused' as const }, // Attention Needed
-    ];
-    
-    let currentIndex = 0;
-    
-    // Apply initial state
-    const applyDemoState = () => {
-      const state = demoStates[currentIndex];
-      setIsFocused(state.focused);
-      setFocusScore(state.score);
-      setStatus(state.status);
-      currentIndex = (currentIndex + 1) % demoStates.length;
-    };
-    
-    // Apply first state immediately
-    applyDemoState();
-    
-    // Cycle every 20 seconds
-    demoIntervalRef.current = window.setInterval(() => {
-      applyDemoState();
-    }, 20000);
-  };
-
-  const startDetectionLoop = () => {
-    if (detectIntervalRef.current) clearInterval(detectIntervalRef.current);
-    
-    // If demo mode is enabled, use demo cycling instead of real detection
-    if (demoMode) {
-      startDemoMode();
-      return;
-    }
-    
+  const captureFrame = () => {
     const video = videoRef.current;
     const canvas = canvasRef.current;
-    if (!video || !canvas) return;
+    if (!video || !canvas) return null;
+    if (!video.srcObject || video.videoWidth === 0 || video.videoHeight === 0) return null;
 
-    const displaySize = { width: video.clientWidth, height: video.clientHeight };
-    (window as any).faceapi.matchDimensions(canvas, displaySize);
+    try {
+      const context = canvas.getContext('2d');
+      if (!context) return null;
+
+      canvas.width = video.videoWidth;
+      canvas.height = video.videoHeight;
+      context.drawImage(video, 0, 0, canvas.width, canvas.height);
+      return canvas.toDataURL('image/jpeg');
+    } catch {
+      return null;
+    }
+  };
+
+  const applyBackendResult = (data: Record<string, unknown>) => {
+    const backendFocused = typeof data.focused === 'boolean' ? data.focused : null;
+    const metrics = (data.metrics ?? {}) as Record<string, unknown>;
+    const rawScore = metrics.focus_score ?? data.focus_score ?? data.focusScore ?? data.score;
+    const normalizedScore =
+      typeof rawScore === 'number'
+        ? rawScore <= 1
+          ? Math.round(rawScore * 100)
+          : Math.round(rawScore)
+        : null;
+
+    if (backendFocused !== null) {
+      setIsFocused(backendFocused);
+      setStatus(backendFocused ? 'focused' : 'unfocused');
+      setFocusScore(normalizedScore ?? (backendFocused ? 85 : 30));
+      return;
+    }
+
+    setIsFocused(false);
+    setStatus('unfocused');
+    setFocusScore(normalizedScore ?? 30);
+  };
+
+  const runBackendDetectionLoop = () => {
+    if (detectIntervalRef.current) clearInterval(detectIntervalRef.current);
 
     detectIntervalRef.current = window.setInterval(async () => {
-      try {
-        const options = new (window as any).faceapi.TinyFaceDetectorOptions({
-          inputSize: 224,
-          scoreThreshold: 0.5,
-        });
-        const detection = await (window as any).faceapi.detectSingleFace(video, options);
-        const ctx = canvas.getContext('2d');
-        ctx?.clearRect(0, 0, canvas.width, canvas.height);
+      if (analysisInFlightRef.current) return;
 
-        if (detection) {
-          setStatus('focused');
-          setIsFocused(true);
-          setFocusScore(85); // High score indicates focused state
-          const resized = (window as any).faceapi.resizeResults(detection, displaySize);
-          (window as any).faceapi.draw.drawDetections(canvas, resized);
-        } else {
-          setStatus('unfocused');
-          setIsFocused(false);
-          setFocusScore(30); // Low score indicates attention needed
+      const imageData = captureFrame();
+      if (!imageData) return;
+
+      analysisInFlightRef.current = true;
+      try {
+        const response = await fetch(buildBackendUrl(BACKEND_ROUTES.analyze), {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ image: imageData }),
+        });
+
+        if (!response.ok) {
+          throw new Error(`Focus detection request failed with status ${response.status}`);
         }
-      } catch (err) {
-        // Silently handle detection errors to avoid console spam
+
+        const data = await response.json();
+        applyBackendResult(data ?? {});
+      } catch {
+        // Keep the UI stable if the backend temporarily fails.
+      } finally {
+        analysisInFlightRef.current = false;
       }
-    }, 300);
+    }, 2000);
   };
 
   const handleStart = async () => {
     if (!isDetectionEnabled) return;
-    
+
     setIsProcessing(true);
     setStatus('loading');
-    
-    try {
-      // If demo mode is enabled, skip camera/model loading
-      if (demoMode) {
-        setStatus('active');
-        setIsProcessing(true);
-        startDetectionLoop(); // This will start demo cycling
-        toast.success('Demo Mode Active', {
-          description: 'Focus states will cycle every 20 seconds for demonstration',
-          duration: 4000,
-        });
-        return;
-      }
-      
-      // Real camera detection mode
-      // Load face-api.js models
-      if (!(window as any).faceapi) {
-        const script = document.createElement('script');
-        script.src = 'https://cdn.jsdelivr.net/npm/face-api.js@0.22.2/dist/face-api.min.js';
-        script.async = true;
-        document.head.appendChild(script);
-        
-        await new Promise((resolve, reject) => {
-          script.onload = resolve;
-          script.onerror = reject;
-        });
-      }
 
-      try {
-        await (window as any).faceapi.nets.tinyFaceDetector.loadFromUri(BACKEND_MODEL_URL);
-      } catch {
-        await (window as any).faceapi.nets.tinyFaceDetector.loadFromUri(FALLBACK_MODEL_URL);
-      }
+    try {
       await startWebcam();
       setStatus('active');
-      startDetectionLoop();
-    } catch (err) {
-      // Silently handle error - user already saw toast from startWebcam
+      runBackendDetectionLoop();
+    } catch {
       setStatus('error');
       setIsProcessing(false);
     }
@@ -186,37 +152,38 @@ export const FocusDetector: React.FC<FocusDetectorProps> = ({ variant = 'full', 
 
   const handleStop = () => {
     if (detectIntervalRef.current) clearInterval(detectIntervalRef.current);
-    if (demoIntervalRef.current) clearInterval(demoIntervalRef.current);
+    analysisInFlightRef.current = false;
+
     if (streamRef.current) {
-      streamRef.current.getTracks().forEach((t) => t.stop());
+      streamRef.current.getTracks().forEach((track) => track.stop());
     }
+
     setStatus('idle');
     setIsProcessing(false);
     setIsFocused(false);
-    setFocusScore(50); // Reset to idle state
+    setFocusScore(50);
   };
 
   useEffect(() => {
     return () => {
       if (detectIntervalRef.current) clearInterval(detectIntervalRef.current);
-      if (demoIntervalRef.current) clearInterval(demoIntervalRef.current);
+      analysisInFlightRef.current = false;
+
       if (streamRef.current) {
-        streamRef.current.getTracks().forEach((t) => t.stop());
+        streamRef.current.getTracks().forEach((track) => track.stop());
       }
     };
   }, []);
 
-  // Auto-stop if detection is disabled
   useEffect(() => {
     if (!isDetectionEnabled && isProcessing) {
       handleStop();
     }
-  }, [isDetectionEnabled]);
+  }, [isDetectionEnabled, isProcessing]);
 
-  // Auto-start when detection is enabled (for hidden variant)
   useEffect(() => {
     if (autoStart && isDetectionEnabled && !isProcessing && status === 'idle') {
-      handleStart();
+      void handleStart();
     }
   }, [autoStart, isDetectionEnabled, isProcessing, status]);
 
@@ -224,6 +191,7 @@ export const FocusDetector: React.FC<FocusDetectorProps> = ({ variant = 'full', 
     if (variant === 'hidden') {
       return null;
     }
+
     return (
       <div className="glass-card p-6 rounded-lg">
         <div className="flex items-center justify-center gap-3 text-muted-foreground">
@@ -237,14 +205,7 @@ export const FocusDetector: React.FC<FocusDetectorProps> = ({ variant = 'full', 
   if (variant === 'hidden') {
     return (
       <div className="hidden">
-        <video
-          ref={videoRef}
-          onPlay={startDetectionLoop}
-          playsInline
-          autoPlay
-          muted
-          className="w-1 h-1"
-        />
+        <video ref={videoRef} playsInline autoPlay muted className="w-1 h-1" />
         <canvas ref={canvasRef} className="w-1 h-1" />
       </div>
     );
@@ -269,13 +230,13 @@ export const FocusDetector: React.FC<FocusDetectorProps> = ({ variant = 'full', 
                   status === 'focused'
                     ? 'text-focus-green'
                     : status === 'unfocused'
-                    ? 'text-focus-amber'
-                    : 'text-muted-foreground'
+                      ? 'text-focus-amber'
+                      : 'text-muted-foreground'
                 }`}
               >
                 {status === 'idle' && 'Not Active'}
-                {status === 'loading' && 'Loading...'}
-                {status === 'active' && 'Detecting...'}
+                {status === 'loading' && 'Starting...'}
+                {status === 'active' && 'Analyzing...'}
                 {status === 'focused' && 'Focused'}
                 {status === 'unfocused' && 'Attention Needed'}
                 {status === 'error' && 'Error - Check Settings'}
@@ -305,15 +266,15 @@ export const FocusDetector: React.FC<FocusDetectorProps> = ({ variant = 'full', 
             status === 'focused'
               ? 'bg-focus-bg text-focus-green border border-focus-green/30'
               : status === 'unfocused'
-              ? 'bg-focus-amber/10 text-focus-amber border border-focus-amber/30'
-              : 'bg-muted text-muted-foreground border border-border'
+                ? 'bg-focus-amber/10 text-focus-amber border border-focus-amber/30'
+                : 'bg-muted text-muted-foreground border border-border'
           }`}
         >
           {status === 'focused' && <Eye className="w-4 h-4" />}
           {status === 'unfocused' && <EyeOff className="w-4 h-4" />}
           {status === 'idle' && 'Idle — Click Start'}
-          {status === 'loading' && 'Loading Models...'}
-          {status === 'active' && 'Detecting...'}
+          {status === 'loading' && 'Starting...'}
+          {status === 'active' && 'Analyzing...'}
           {status === 'focused' && 'Focused'}
           {status === 'unfocused' && 'Not Focused'}
           {status === 'error' && 'Error - Check Camera'}
@@ -321,14 +282,7 @@ export const FocusDetector: React.FC<FocusDetectorProps> = ({ variant = 'full', 
       </div>
 
       <div className="relative rounded-lg overflow-hidden bg-black/20 border border-border">
-        <video
-          ref={videoRef}
-          onPlay={startDetectionLoop}
-          playsInline
-          autoPlay
-          muted
-          className="w-full h-auto max-h-64 object-cover"
-        />
+        <video ref={videoRef} playsInline autoPlay muted className="w-full h-auto max-h-64 object-cover" />
         <canvas ref={canvasRef} className="absolute inset-0 w-full h-full" />
         {!isProcessing && status !== 'error' && (
           <div className="absolute inset-0 flex items-center justify-center bg-black/50">
@@ -347,20 +301,11 @@ export const FocusDetector: React.FC<FocusDetectorProps> = ({ variant = 'full', 
       </div>
 
       <div className="flex gap-3">
-        <Button
-          onClick={handleStart}
-          disabled={isProcessing || status === 'loading'}
-          className="flex-1"
-        >
+        <Button onClick={handleStart} disabled={isProcessing || status === 'loading'} className="flex-1">
           <Camera className="w-4 h-4 mr-2" />
-          {status === 'loading' ? 'Loading...' : 'Start Detection'}
+          {status === 'loading' ? 'Starting...' : 'Start Detection'}
         </Button>
-        <Button
-          onClick={handleStop}
-          disabled={!isProcessing}
-          variant="outline"
-          className="flex-1"
-        >
+        <Button onClick={handleStop} disabled={!isProcessing} variant="outline" className="flex-1">
           <CameraOff className="w-4 h-4 mr-2" />
           Stop Detection
         </Button>

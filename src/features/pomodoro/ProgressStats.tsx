@@ -1,24 +1,87 @@
+import { useEffect, useMemo, useState } from 'react';
 import { motion } from 'motion/react';
 import { Bot, ClipboardCheck, Layers, TrendingUp } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '../../components/ui/card';
 import { Button } from '../../components/ui/button';
+import { BACKEND_ROUTES } from '../../config/backend';
+import backendClient, { getAuthHeaders } from '../../utils/backendClient';
 
 interface ProgressStatsProps {
   onNavigate?: (page: string) => void;
 }
 
-export function ProgressStats({ onNavigate }: ProgressStatsProps) {
-  const weeklyProgress = 65;
+type DailyFocus = {
+  day: string;
+  minutes: number;
+};
 
-  const weeklyData = [
-    { day: 'Mon', hours: 3 },
-    { day: 'Tue', hours: 4 },
-    { day: 'Wed', hours: 2 },
-    { day: 'Thu', hours: 5 },
-    { day: 'Fri', hours: 3 },
-    { day: 'Sat', hours: 4 },
-    { day: 'Sun', hours: 2 },
-  ];
+type StudyDashboardStats = {
+  weekly_focus_minutes: number;
+  weekly_focus_hours: number;
+  daily_focus: DailyFocus[];
+};
+
+const WEEKLY_TARGET_HOURS = 20;
+const WEEKLY_TARGET_MINUTES = WEEKLY_TARGET_HOURS * 60;
+
+export function ProgressStats({ onNavigate }: ProgressStatsProps) {
+  const [stats, setStats] = useState<StudyDashboardStats>({
+    weekly_focus_minutes: 0,
+    weekly_focus_hours: 0,
+    daily_focus: [],
+  });
+
+  useEffect(() => {
+    let isMounted = true;
+
+    const loadProgressStats = async () => {
+      try {
+        const authHeaders = await getAuthHeaders();
+        const response = await backendClient.get(BACKEND_ROUTES.studyDashboardStats, {
+          headers: authHeaders,
+        });
+
+        if (!isMounted) return;
+
+        setStats({
+          weekly_focus_minutes: Number(response.data?.weekly_focus_minutes) || 0,
+          weekly_focus_hours: Number(response.data?.weekly_focus_hours) || 0,
+          daily_focus: Array.isArray(response.data?.daily_focus) ? response.data.daily_focus : [],
+        });
+      } catch {
+        if (isMounted) {
+          setStats({
+            weekly_focus_minutes: 0,
+            weekly_focus_hours: 0,
+            daily_focus: [],
+          });
+        }
+      }
+    };
+
+    void loadProgressStats();
+
+    return () => {
+      isMounted = false;
+    };
+  }, []);
+
+  const weeklyProgress = Math.min(
+    100,
+    Math.round((stats.weekly_focus_minutes / WEEKLY_TARGET_MINUTES) * 100),
+  );
+
+  const weeklyData = useMemo(() => {
+    const fallbackDays = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+    const realRows = stats.daily_focus.map((row) => ({
+      day: row.day,
+      hours: Math.round((Number(row.minutes) || 0) / 6) / 10,
+    }));
+
+    return realRows.length > 0
+      ? realRows
+      : fallbackDays.map((day) => ({ day, hours: 0 }));
+  }, [stats.daily_focus]);
 
   const actions = [
     { label: 'Open AI Tutor', icon: Bot, page: 'chatbot' },
@@ -26,7 +89,8 @@ export function ProgressStats({ onNavigate }: ProgressStatsProps) {
     { label: 'Take Quiz', icon: ClipboardCheck, page: 'quiz' },
   ];
 
-  const maxHours = Math.max(...weeklyData.map((day) => day.hours));
+  const maxHours = Math.max(1, ...weeklyData.map((day) => day.hours));
+  const weeklyHoursLabel = `${stats.weekly_focus_hours.toFixed(1).replace(/\.0$/, '')}/${WEEKLY_TARGET_HOURS} hrs`;
 
   return (
     <Card className="h-full border-border bg-card shadow-sm">
@@ -73,7 +137,7 @@ export function ProgressStats({ onNavigate }: ProgressStatsProps) {
             </svg>
             <div className="absolute inset-0 flex flex-col items-center justify-center">
               <span className="text-2xl font-semibold">{weeklyProgress}%</span>
-              <span className="text-xs text-secondary">13/20 hrs</span>
+              <span className="text-xs text-secondary">{weeklyHoursLabel}</span>
             </div>
           </div>
 

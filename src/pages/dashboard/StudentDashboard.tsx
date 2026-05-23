@@ -347,7 +347,7 @@ export function StudentDashboard({ onNavigate, onLogout }: StudentDashboardProps
                       </div>
 
                       {isDetectionEnabled ? (
-                        <FocusDetector variant="compact" demoMode={true} />
+                        <FocusDetector variant="compact" />
                       ) : (
                         <div className="rounded-xl border border-border bg-background p-4">
                           <div className="flex items-center gap-3">
