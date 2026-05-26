@@ -14,7 +14,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '../ui/card';
 import { Badge } from '../ui/badge';
 import { Progress } from '../ui/progress';
 import { FormattedAIMessage } from '../shared/FormattedAIMessage';
-import type { Message } from '../../pages/chat/types/ChatTypes';
+import type { Message } from '../../types/ChatTypes';
 
 interface ChatMessageListProps {
   messages: Message[];

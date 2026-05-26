@@ -4,68 +4,29 @@ import type { InternalAxiosRequestConfig } from 'axios';
 
 const TOKEN_KEY = 'fs_access_token';
 
-type ChromeStorageLike = {
-  get: (keys: string | string[] | object | null, callback: (items: Record<string, any>) => void) => void;
-  set: (items: Record<string, any>, callback?: () => void) => void;
-  remove: (keys: string | string[], callback?: () => void) => void;
-};
-
-function getChromeStorageLocal(): ChromeStorageLike | null {
-  const chromeApi = (globalThis as typeof globalThis & { chrome?: any }).chrome;
-  return chromeApi?.storage?.local ?? null;
-}
-
 export async function getAccessToken(): Promise<string | null> {
-  const storage = getChromeStorageLocal();
-  if (!storage) {
-    // Fallback to localStorage for dev / non-extension environments
-    try {
-      const token = localStorage.getItem(TOKEN_KEY);
-      return token && token.length > 0 ? token : null;
-    } catch (e) {
-      return null;
-    }
+  try {
+    const token = localStorage.getItem(TOKEN_KEY);
+    return token && token.length > 0 ? token : null;
+  } catch (e) {
+    return null;
   }
-
-  return await new Promise((resolve) => {
-    storage.get(TOKEN_KEY, (items) => {
-      const token = items?.[TOKEN_KEY];
-      resolve(typeof token === 'string' && token.length > 0 ? token : null);
-    });
-  });
 }
 
 export async function setAccessToken(token: string): Promise<void> {
-  const storage = getChromeStorageLocal();
-  if (!storage) {
-    // Fallback to localStorage for dev / non-extension environments
-    try {
-      localStorage.setItem(TOKEN_KEY, token);
-    } catch (e) {
-      // ignore
-    }
-    return;
+  try {
+    localStorage.setItem(TOKEN_KEY, token);
+  } catch (e) {
+    // ignore
   }
-
-  await new Promise<void>((resolve) => {
-    storage.set({ [TOKEN_KEY]: token }, () => resolve());
-  });
 }
 
 export async function clearAccessToken(): Promise<void> {
-  const storage = getChromeStorageLocal();
-  if (!storage) {
-    try {
-      localStorage.removeItem(TOKEN_KEY);
-    } catch (e) {
-      // ignore
-    }
-    return;
+  try {
+    localStorage.removeItem(TOKEN_KEY);
+  } catch (e) {
+    // ignore
   }
-
-  await new Promise<void>((resolve) => {
-    storage.remove(TOKEN_KEY, () => resolve());
-  });
 }
 
 export async function getAuthHeaders() {

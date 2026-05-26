@@ -1,5 +1,6 @@
 import { motion } from 'motion/react';
 import { ArrowUpRight, Linkedin, Sparkles, Twitter, Youtube } from 'lucide-react';
+import { FRONTEND_ROUTES, buildFrontendUrl } from '../../config/frontend';
 
 interface FooterProps {
   onNavigate: (page: string) => void;
@@ -8,22 +9,21 @@ interface FooterProps {
 export function Footer({ onNavigate }: FooterProps) {
   void onNavigate;
 
-  const placeholderUrl = 'https://www.google.com/';
   const websiteLinks = [
-    { name: 'Home', href: placeholderUrl },
-    { name: 'Our Science', href: placeholderUrl },
-    { name: 'About Us', href: placeholderUrl },
-    { name: 'Contact', href: placeholderUrl },
+    { name: 'Home', href: buildFrontendUrl(FRONTEND_ROUTES.home) },
+    { name: 'Our Science', href: buildFrontendUrl(FRONTEND_ROUTES.science) },
+    { name: 'About Us', href: buildFrontendUrl(FRONTEND_ROUTES.about) },
+    { name: 'Contact', href: buildFrontendUrl(FRONTEND_ROUTES.contact) },
   ];
   const resourceLinks = [
-    { name: 'Student Dashboard', href: placeholderUrl },
-    { name: 'Focus Method', href: placeholderUrl },
-    { name: 'Support', href: placeholderUrl },
+    { name: 'Student Dashboard', href: buildFrontendUrl(FRONTEND_ROUTES.dashboard) },
+    { name: 'Focus Method', href: buildFrontendUrl(FRONTEND_ROUTES.science) },
+    { name: 'Support', href: buildFrontendUrl(FRONTEND_ROUTES.contact) },
   ];
   const socialLinks = [
-    { icon: Linkedin, href: placeholderUrl, label: 'LinkedIn' },
-    { icon: Twitter, href: placeholderUrl, label: 'Twitter' },
-    { icon: Youtube, href: placeholderUrl, label: 'YouTube' },
+    { icon: Linkedin, href: buildFrontendUrl(FRONTEND_ROUTES.contact), label: 'LinkedIn' },
+    { icon: Twitter, href: buildFrontendUrl(FRONTEND_ROUTES.contact), label: 'Twitter' },
+    { icon: Youtube, href: buildFrontendUrl(FRONTEND_ROUTES.contact), label: 'YouTube' },
   ];
 
   return (

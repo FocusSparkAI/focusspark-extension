@@ -1,12 +1,10 @@
 # FocusSpark Extension
 
-FocusSpark is an AI-powered study and productivity app. This repository contains the Chrome extension frontend: the extension shell, the in-browser study workspace, and the MV3 background script that supports extension behavior such as launch handling and focus-session tab control.
+FocusSpark Extension is the Chrome extension frontend for the FocusSpark study workspace. It contains the extension app shell, dashboard, AI tutor workspace, focus tools, Pomodoro behavior, quizzes, flashcards, and the MV3 background service worker.
 
-The extension is meant for the day-to-day study experience inside Chrome. Pages that belong to the broader website, such as public marketing pages, account management, and long-form profile or settings flows, should live outside this folder.
+Website-only pages such as the public landing pages, Science page, profile, and long-form settings live in `FocusSpark-Frontend`.
 
-## What’s In This Repo
-
-This project includes:
+## What Is In This Repo
 
 - Chrome Extension Manifest V3 setup
 - React app mounted inside the extension page
@@ -16,7 +14,7 @@ This project includes:
 - AI chat workspace and chat history
 - Flashcards and quiz flows
 - Focus tools, webcam test screens, and Pomodoro/focus context
-- UI components and shared layout primitives
+- Extension bell dropdown that respects the web settings value `notifications_enabled`
 
 ## Tech Stack
 
@@ -42,13 +40,15 @@ FocusSpark-Extension/
     background.js       # MV3 service worker
     icons/              # Extension icons
   src/
-    main.tsx            # React entry point
+    main.tsx
     extension/App.tsx   # App shell and page switching
+    config/             # Backend and frontend route config
     context/            # Focus and Pomodoro providers
     components/         # Shared UI and layout components
-    pages/              # Study, auth, dashboard, and extension tool pages
-    utils/              # Backend and helper utilities
-  build/                # Production extension output from npm run build
+    pages/              # Study, auth, dashboard, and tool pages
+    features/           # Pomodoro and focus features
+    utils/              # Backend and AI clients
+  build/                # Production extension output
 ```
 
 ## Requirements
@@ -57,26 +57,27 @@ FocusSpark-Extension/
 - npm
 - Google Chrome or another Chromium-based browser
 - FocusSpark backend available at `http://127.0.0.1:8000`
+- FocusSpark web frontend available at `http://localhost:3000` for web-only routes
 
-The manifest includes host permissions for the local backend and WebSocket access, along with broader HTTPS access used by the extension.
+## Environment
+
+Create a `.env` file in this project root when you need to override the defaults:
+
+```env
+VITE_BACKEND_BASE_URL=http://127.0.0.1:8000
+VITE_FRONTEND_BASE_URL=http://localhost:3000
+```
+
+The extension falls back to those same local URLs when the variables are not set.
 
 ## Local Development
 
-Install dependencies:
-
 ```bash
 npm install
-```
-
-Start the Vite dev server:
-
-```bash
 npm run dev
 ```
 
 ## Build
-
-Create the production extension bundle:
 
 ```bash
 npm run build
@@ -92,23 +93,23 @@ The compiled extension is written to `build/`.
 4. Click Load unpacked.
 5. Select the `FocusSpark-Extension/build` folder.
 
-After changing `public/manifest.json` or `public/background.js`, rebuild the project and reload the extension.
+After changing `public/manifest.json` or `public/background.js`, rebuild and reload the extension.
 
 ## Behavior
 
-Clicking the FocusSpark extension icon opens the app in Chrome.
-
-The background service worker in `public/background.js` manages extension-level behavior for focus sessions, including tab tracking and distraction-tab handling when strict mode is enabled.
-
-Auth tokens are stored in Chrome extension storage under `fs_access_token`.
+- Clicking the FocusSpark extension icon opens the extension app in Chrome.
+- Auth tokens are stored in Chrome extension storage under `fs_access_token`.
+- The background service worker manages focus-session tab behavior.
+- The extension notification dropdown reads `/study/settings`; when `notifications_enabled` is false it shows "Notifications off" and still links to the full web notifications page.
+- The extension can open web routes such as sign up, forgot password, achievements, profile, settings, and notifications through `src/config/frontend.ts`.
 
 ## Scripts
 
 ```bash
-npm run dev      # Start the Vite dev server
-npm run build    # Type-check and build the extension
+npm run dev      # Start Vite dev server
+npm run build    # Type-check and build extension
 npm run lint     # Run ESLint
-npm run preview  # Preview the production build
+npm run preview  # Preview production build
 ```
 
 ## Notes

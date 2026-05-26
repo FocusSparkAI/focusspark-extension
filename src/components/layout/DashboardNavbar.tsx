@@ -21,8 +21,11 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '../ui/dropdown-menu';
-import { BACKEND_ROUTES } from '../../config/backend';
+import { Avatar, AvatarFallback, AvatarImage } from '../ui/avatar';
+import { BACKEND_BASE_URL, BACKEND_ROUTES } from '../../config/backend';
+import { FRONTEND_ROUTES, buildFrontendUrl } from '../../config/frontend';
 import backendClient, { getAuthHeaders } from '../../utils/backendClient';
+import { playSoundForNewUnreadNotifications, unlockNotificationSound } from '../../utils/notificationSound';
 
 interface DashboardNavbarProps {
   onLogout: () => void | Promise<void>;
@@ -64,8 +67,16 @@ function getNotificationIcon(type: string) {
   return Info;
 }
 
-function openFrontendNotifications() {
-  const url = 'https://www.google.com/';
+function getNotificationIconClass(type: string) {
+  const normalized = type.toLowerCase();
+  if (normalized.includes('achievement')) return 'bg-purple-500/12 text-purple-500';
+  if (normalized.includes('reminder') || normalized.includes('pomodoro')) return 'bg-blue-500/12 text-blue-500';
+  if (normalized.includes('warning') || normalized.includes('alert')) return 'bg-amber-500/12 text-amber-500';
+  return 'bg-slate-500/12 text-slate-500';
+}
+
+function openFrontendRoute(path: string) {
+  const url = buildFrontendUrl(path);
   const chromeApi = (globalThis as typeof globalThis & { chrome?: any }).chrome;
 
   if (chromeApi?.tabs?.create) {
@@ -76,6 +87,17 @@ function openFrontendNotifications() {
   window.open(url, '_blank', 'noopener,noreferrer');
 }
 
+function resolveAssetUrl(value: string) {
+  if (!value) return '';
+  if (/^https?:\/\//i.test(value)) return value;
+  return new URL(value, BACKEND_BASE_URL).toString();
+}
+
+function getUserInitial(name: string) {
+  const firstInitial = name.trim().charAt(0);
+  return firstInitial ? firstInitial.toUpperCase() : null;
+}
+
 export function DashboardNavbar({ onLogout }: DashboardNavbarProps) {
   const [isDark, setIsDark] = useState(() =>
     document.documentElement.classList.contains('dark'),
@@ -83,10 +105,53 @@ export function DashboardNavbar({ onLogout }: DashboardNavbarProps) {
   const [notifications, setNotifications] = useState<DashboardNotification[]>([]);
   const [notificationsLoading, setNotificationsLoading] = useState(true);
   const [notificationsError, setNotificationsError] = useState(false);
+  const [extensionNotificationsEnabled, setExtensionNotificationsEnabled] = useState(true);
+  const [avatarUrl, setAvatarUrl] = useState('');
+  const [displayName, setDisplayName] = useState('');
 
-  const unreadCount = notifications.filter((notification) => !notification.read).length;
+  const unreadNotifications = notifications.filter((notification) => !notification.read);
+  const unreadCount = extensionNotificationsEnabled ? unreadNotifications.length : 0;
+
+  const loadProfile = useCallback(async () => {
+    try {
+      const authHeaders = await getAuthHeaders();
+      const response = await backendClient.get(BACKEND_ROUTES.authProfile, {
+        headers: authHeaders,
+      });
+      const data = response.data;
+      setAvatarUrl(resolveAssetUrl(data?.avatar_url ?? data?.avatarUrl ?? ''));
+      setDisplayName(data?.full_name ?? data?.fullName ?? data?.name ?? '');
+    } catch {
+      setAvatarUrl('');
+      setDisplayName('');
+    }
+  }, []);
+
+  const loadNotificationPreference = useCallback(async () => {
+    try {
+      const authHeaders = await getAuthHeaders();
+      const response = await backendClient.get(BACKEND_ROUTES.studySettings, {
+        headers: authHeaders,
+      });
+      const enabled = response.data?.notifications_enabled !== false;
+      const soundEnabled = response.data?.accessibility?.notification_sound !== false;
+      setExtensionNotificationsEnabled(enabled);
+      if (!enabled) {
+        setNotifications([]);
+        setNotificationsError(false);
+        setNotificationsLoading(false);
+      }
+      return { enabled, soundEnabled };
+    } catch {
+      setExtensionNotificationsEnabled(true);
+      return { enabled: true, soundEnabled: false };
+    }
+  }, []);
 
   const loadNotifications = useCallback(async () => {
+    const { enabled: notificationsEnabled, soundEnabled } = await loadNotificationPreference();
+    if (!notificationsEnabled) return;
+
     setNotificationsLoading(true);
     setNotificationsError(false);
 
@@ -96,17 +161,26 @@ export function DashboardNavbar({ onLogout }: DashboardNavbarProps) {
         headers: authHeaders,
         params: { limit: 10 },
       });
-      setNotifications(Array.isArray(response.data) ? response.data : []);
+      const nextNotifications = Array.isArray(response.data) ? response.data : [];
+      setNotifications(nextNotifications);
+      if (soundEnabled) {
+        playSoundForNewUnreadNotifications(nextNotifications);
+      }
     } catch {
       setNotificationsError(true);
     } finally {
       setNotificationsLoading(false);
     }
-  }, []);
+  }, [loadNotificationPreference]);
 
   useEffect(() => {
+    unlockNotificationSound();
     void loadNotifications();
   }, [loadNotifications]);
+
+  useEffect(() => {
+    void loadProfile();
+  }, [loadProfile]);
 
   const markNotificationRead = async (notification: DashboardNotification) => {
     if (notification.read) return;
@@ -205,7 +279,7 @@ export function DashboardNavbar({ onLogout }: DashboardNavbarProps) {
             <DropdownMenuContent align="end" className="w-80">
               <DropdownMenuLabel className="flex items-center justify-between gap-3">
                 <span>Notifications</span>
-                {unreadCount > 0 && (
+                {extensionNotificationsEnabled && unreadCount > 0 && (
                   <button
                     type="button"
                     onClick={(event) => {
@@ -221,26 +295,36 @@ export function DashboardNavbar({ onLogout }: DashboardNavbarProps) {
               </DropdownMenuLabel>
               <DropdownMenuSeparator />
               <div className="max-h-96 space-y-2 overflow-y-auto p-2">
-                {notificationsLoading && (
+                {!extensionNotificationsEnabled && (
+                  <div className="rounded-lg border border-border bg-background p-3 text-sm text-secondary">
+                    <p className="font-medium text-foreground">Notifications off</p>
+                    <p className="mt-1">
+                      Extension notifications are disabled in settings.
+                    </p>
+                  </div>
+                )}
+
+                {extensionNotificationsEnabled && notificationsLoading && (
                   <div className="rounded-lg border border-border bg-background p-3 text-sm text-secondary">
                     Loading notifications...
                   </div>
                 )}
 
-                {!notificationsLoading && notificationsError && (
-                  <div className="rounded-lg border border-destructive/30 bg-destructive/10 p-3 text-sm text-destructive">
-                    Could not load notifications.
-                  </div>
-                )}
-
-                {!notificationsLoading && !notificationsError && notifications.length === 0 && (
+                {extensionNotificationsEnabled && !notificationsLoading && notificationsError && (
                   <div className="rounded-lg border border-border bg-background p-3 text-sm text-secondary">
-                    No important notifications yet.
+                    No notifications found.
                   </div>
                 )}
 
-                {!notificationsLoading && !notificationsError && notifications.map((notification) => {
+                {extensionNotificationsEnabled && !notificationsLoading && !notificationsError && unreadNotifications.length === 0 && (
+                  <div className="rounded-lg border border-border bg-background p-3 text-sm text-secondary">
+                    No unread notifications.
+                  </div>
+                )}
+
+                {extensionNotificationsEnabled && !notificationsLoading && !notificationsError && unreadNotifications.map((notification) => {
                   const Icon = getNotificationIcon(notification.type);
+                  const iconClass = getNotificationIconClass(notification.type);
 
                   return (
                     <button
@@ -254,7 +338,9 @@ export function DashboardNavbar({ onLogout }: DashboardNavbarProps) {
                       }`}
                     >
                       <div className="flex items-start gap-3">
-                        <Icon className="mt-0.5 h-4 w-4 shrink-0 text-blue-500" />
+                        <span className={`mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-full ${iconClass}`}>
+                          <Icon className="h-5 w-5" />
+                        </span>
                         <div className="min-w-0 flex-1">
                           <p className="text-sm font-medium leading-5">{notification.title}</p>
                           <p className="mt-1 text-sm leading-5 text-secondary">
@@ -275,7 +361,7 @@ export function DashboardNavbar({ onLogout }: DashboardNavbarProps) {
               <DropdownMenuSeparator />
               <button
                 type="button"
-                onClick={openFrontendNotifications}
+                onClick={() => openFrontendRoute(FRONTEND_ROUTES.notifications)}
                 className="w-full rounded-sm px-2 py-2 text-left text-sm font-medium text-blue-500 transition-colors hover:bg-accent/50"
               >
                 View all notifications
@@ -285,18 +371,21 @@ export function DashboardNavbar({ onLogout }: DashboardNavbarProps) {
 
           <DropdownMenu>
             <DropdownMenuTrigger className="rounded-full p-1 transition-colors hover:bg-accent/50 focus:outline-none focus:ring-2 focus:ring-blue-500/50">
-              <div className="flex h-10 w-10 items-center justify-center rounded-full bg-gradient-to-br from-blue-500 to-purple-600 shadow-lg shadow-purple-500/25">
-                <UserIcon className="h-5 w-5 text-white" />
-              </div>
+              <Avatar className="h-10 w-10 border border-blue-500/20 shadow-lg shadow-purple-500/20">
+                <AvatarImage src={avatarUrl} alt={displayName || 'Profile'} />
+                <AvatarFallback className="bg-gradient-to-br from-blue-500 to-purple-600 text-white">
+                  {getUserInitial(displayName) ?? <UserIcon className="h-5 w-5" />}
+                </AvatarFallback>
+              </Avatar>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end">
-              <DropdownMenuLabel>My Account</DropdownMenuLabel>
+              <DropdownMenuLabel>{displayName || 'My Account'}</DropdownMenuLabel>
               <DropdownMenuSeparator />
-              <DropdownMenuItem onClick={() => window.open('https://www.google.com/', '_blank', 'noopener,noreferrer')}>
+              <DropdownMenuItem onClick={() => openFrontendRoute(FRONTEND_ROUTES.profile)}>
                 <UserIcon className="mr-2 h-4 w-4" />
                 Profile
               </DropdownMenuItem>
-              <DropdownMenuItem onClick={() => window.open('https://www.google.com/', '_blank', 'noopener,noreferrer')}>
+              <DropdownMenuItem onClick={() => openFrontendRoute(FRONTEND_ROUTES.settings)}>
                 <Settings className="mr-2 h-4 w-4" />
                 Settings
               </DropdownMenuItem>

@@ -94,6 +94,7 @@ export function StudentDashboard({ onNavigate, onLogout }: StudentDashboardProps
     quizSets: 0,
     isLoading: true,
   });
+  const [profileName, setProfileName] = useState('');
   const [savedFocusMinutes, setSavedFocusMinutes] = useState(() => {
     const saved = Number(localStorage.getItem('focusspark-extension-focus-minutes'));
     return Number.isFinite(saved) && saved > 0 ? saved : 25;
@@ -136,7 +137,28 @@ export function StudentDashboard({ onNavigate, onLogout }: StudentDashboardProps
       }
     };
 
+    const loadProfile = async () => {
+      try {
+        const authHeaders = await getAuthHeaders();
+        const response = await backendClient.get(BACKEND_ROUTES.authProfile, {
+          headers: authHeaders,
+        });
+
+        if (!isMounted) return;
+
+        setProfileName(
+          response.data?.full_name ??
+            response.data?.fullName ??
+            response.data?.name ??
+            '',
+        );
+      } catch {
+        if (isMounted) setProfileName('');
+      }
+    };
+
     void loadDashboardStats();
+    void loadProfile();
 
     return () => {
       isMounted = false;
@@ -217,14 +239,29 @@ export function StudentDashboard({ onNavigate, onLogout }: StudentDashboardProps
             <motion.section
               initial={{ opacity: 0, y: 18 }}
               animate={{ opacity: 1, y: 0 }}
-              className="overflow-hidden rounded-xl border border-border bg-card p-5 shadow-sm sm:p-6 lg:p-8"
+              className="relative overflow-hidden rounded-xl border border-border bg-card p-5 shadow-sm sm:p-6 lg:p-8"
             >
+              <div
+                className="mb-6"
+                style={{
+                  display: 'flex',
+                  width: '100%',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                  gap: '16px',
+                }}
+              >
+                <div className="inline-flex w-fit items-center gap-2 rounded-full border border-border bg-background px-3 py-1 text-sm text-secondary">
+                  <LayoutDashboard className="h-4 w-4 text-blue-500" />
+                  Extension dashboard
+                </div>
+                <div className="inline-flex w-fit shrink-0 items-center rounded-full border border-border bg-background px-4 py-2 text-sm">
+                  <span className="text-secondary">Signed in as&nbsp;</span>
+                  <span className="font-medium">{profileName || 'FocusSpark student'}</span>
+                </div>
+              </div>
               <div className="flex flex-col gap-6 lg:flex-row lg:items-center lg:justify-between">
                 <div className="min-w-0 max-w-2xl">
-                  <div className="mb-4 inline-flex items-center gap-2 rounded-full border border-border bg-background px-3 py-1 text-sm text-secondary">
-                    <LayoutDashboard className="h-4 w-4 text-blue-500" />
-                    Extension dashboard
-                  </div>
                   <h1 className="text-3xl font-semibold tracking-normal lg:text-4xl">
                     Your FocusSpark study workspace
                   </h1>
@@ -452,6 +489,7 @@ export function StudentDashboard({ onNavigate, onLogout }: StudentDashboardProps
           </div>
         </main>
       </div>
+
     </div>
   );
 }

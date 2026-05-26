@@ -14,7 +14,8 @@ import { toast } from 'sonner';
 import { Button } from '../../components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '../../components/ui/card';
 import { Switch } from '../../components/ui/switch';
-import { BACKEND_ROUTES, buildBackendUrl } from '../../config/backend';
+import { BACKEND_ROUTES, buildBackendUrl, buildBackendWsUrl } from '../../config/backend';
+import { getAccessToken, getAuthHeaders } from '../../utils/backendClient';
 
 interface FocusToolsPageProps {
   onNavigate: (page: string) => void;
@@ -94,7 +95,7 @@ const detectionContent: Record<
 
 const trackingOffContent = {
   label: 'Tracking is off',
-  description: 'Turn on focus and emotion tracking to send frames to the backend.',
+  description: 'Turn on tracking to test live focus and emotion analysis.',
   panelClassName: 'border-slate-500/25 bg-slate-500/10',
   textClassName: 'text-slate-500 dark:text-slate-300',
   Icon: CameraOff,
@@ -189,7 +190,7 @@ export function FocusToolsPage({ onNavigate }: FocusToolsPageProps) {
   const [emotionState, setEmotionState] = useState<EmotionState>('neutral');
   const [focusScore, setFocusScore] = useState<number | null>(null);
   const [transportMode, setTransportMode] = useState<'idle' | 'connecting' | 'ws' | 'http'>('idle');
-  const websocketUrl = buildBackendUrl(BACKEND_ROUTES.ws).replace(/^http/i, 'ws');
+  const websocketUrl = buildBackendWsUrl(BACKEND_ROUTES.ws);
 
   const captureFrame = () => {
     const video = videoRef.current;
@@ -235,7 +236,13 @@ export function FocusToolsPage({ onNavigate }: FocusToolsPageProps) {
     }
 
     const backendScore = data.focus_score ?? data.focusScore ?? data.score ?? data.confidence;
-    setFocusScore(typeof backendScore === 'number' ? Math.round(backendScore) : null);
+    const normalizedScore =
+      typeof backendScore === 'number'
+        ? backendScore <= 1
+          ? Math.round(backendScore * 100)
+          : Math.round(backendScore)
+        : null;
+    setFocusScore(normalizedScore);
   };
 
   const runHttpDetection = async (imageData: string) => {
@@ -243,9 +250,14 @@ export function FocusToolsPage({ onNavigate }: FocusToolsPageProps) {
     detectInFlightRef.current = true;
 
     try {
+      const authHeaders = await getAuthHeaders();
+      const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+      if (authHeaders.Authorization) {
+        headers.Authorization = authHeaders.Authorization;
+      }
       const response = await fetch(buildBackendUrl(BACKEND_ROUTES.analyze), {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers,
         body: JSON.stringify({ image: imageData }),
       });
 
@@ -289,18 +301,24 @@ export function FocusToolsPage({ onNavigate }: FocusToolsPageProps) {
     if (!isWebcamEnabled || !stream || !videoRef.current) return;
 
     const video = videoRef.current;
+    let readinessTimer: number | null = null;
+    const markCameraReady = () => {
+      if (video.videoWidth > 0 && video.videoHeight > 0) {
+        cameraReadyRef.current = true;
+      }
+    };
     const handleLoadedMetadata = () => {
       video.play().catch(() => {
         // Ignore autoplay errors in extension context.
       });
 
-      setTimeout(() => {
-        cameraReadyRef.current = true;
-      }, 3000);
+      markCameraReady();
+      readinessTimer = window.setTimeout(markCameraReady, 500);
     };
 
     video.srcObject = stream;
     video.addEventListener('loadedmetadata', handleLoadedMetadata);
+    video.addEventListener('canplay', markCameraReady);
 
     if (video.readyState >= 1) {
       handleLoadedMetadata();
@@ -308,6 +326,10 @@ export function FocusToolsPage({ onNavigate }: FocusToolsPageProps) {
 
     return () => {
       video.removeEventListener('loadedmetadata', handleLoadedMetadata);
+      video.removeEventListener('canplay', markCameraReady);
+      if (readinessTimer !== null) {
+        window.clearTimeout(readinessTimer);
+      }
     };
   }, [isWebcamEnabled, stream]);
 
@@ -328,50 +350,67 @@ export function FocusToolsPage({ onNavigate }: FocusToolsPageProps) {
     setDetectionState('waiting');
     setEmotionState('neutral');
     socketShouldStayActiveRef.current = true;
-    const ws = new WebSocket(websocketUrl);
-    wsRef.current = ws;
+    let ws: WebSocket | null = null;
 
-    ws.onopen = () => {
-      setTransportMode('ws');
-      toast.success('Socket connected', {
-        position: 'top-right',
-        duration: 2000,
-      });
-    };
+    void getAccessToken().then((token) => {
+      if (!socketShouldStayActiveRef.current || !isWebcamEnabled || !isTracking) return;
 
-    ws.onmessage = (event) => {
-      try {
-        const data = JSON.parse(event.data);
-        applyDetectionResult(data ?? {});
-      } catch {
-        // Ignore malformed payloads.
-      }
-    };
-
-    ws.onclose = () => {
-      if (wsRef.current === ws) {
-        wsRef.current = null;
-      }
-
-      if (socketShouldStayActiveRef.current && isWebcamEnabled && isTracking) {
+      if (!token) {
         setTransportMode('http');
-        toast.info('Realtime socket unavailable. Switched to HTTP mode.', {
+        toast.error('Please sign in again to use camera detection.', {
           position: 'top-right',
           duration: 3000,
         });
+        return;
       }
-    };
 
-    ws.onerror = () => {
-      setTransportMode('http');
-      toast.error('Socket connection failed. Using HTTP fallback.', {
-        position: 'top-right',
-        duration: 3000,
-      });
-    };
+      const wsUrl = new URL(websocketUrl);
+      wsUrl.searchParams.set('token', token);
+      ws = new WebSocket(wsUrl.toString());
+      wsRef.current = ws;
+
+      ws.onopen = () => {
+        setTransportMode('ws');
+        toast.success('Socket connected', {
+          position: 'top-right',
+          duration: 2000,
+        });
+      };
+
+      ws.onmessage = (event) => {
+        try {
+          const data = JSON.parse(event.data);
+          applyDetectionResult(data ?? {});
+        } catch {
+          // Ignore malformed payloads.
+        }
+      };
+
+      ws.onclose = () => {
+        if (wsRef.current === ws) {
+          wsRef.current = null;
+        }
+
+        if (socketShouldStayActiveRef.current && isWebcamEnabled && isTracking) {
+          setTransportMode('http');
+          toast.info('Realtime socket unavailable. Switched to HTTP mode.', {
+            position: 'top-right',
+            duration: 3000,
+          });
+        }
+      };
+
+      ws.onerror = () => {
+        setTransportMode('http');
+        toast.error('Socket connection failed. Using HTTP fallback.', {
+          position: 'top-right',
+          duration: 3000,
+        });
+      };
+    });
 
     return () => {
-      if (wsRef.current === ws) {
+      if (ws && wsRef.current === ws) {
         ws.close();
         wsRef.current = null;
       }
@@ -418,6 +457,7 @@ export function FocusToolsPage({ onNavigate }: FocusToolsPageProps) {
     }
     setStream(null);
     setIsWebcamEnabled(false);
+    setIsTracking(false);
     setDetectionState('idle');
     setEmotionState('neutral');
     setFocusScore(null);
@@ -457,7 +497,7 @@ export function FocusToolsPage({ onNavigate }: FocusToolsPageProps) {
             <div className="min-w-0">
               <h1 className="truncate text-2xl font-semibold tracking-normal">Focus Tools</h1>
               <p className="truncate text-sm text-secondary">
-                Optional camera-based attention checks for study sessions
+                Test camera-based focus and emotion checks before using study tools
               </p>
             </div>
           </div>
@@ -493,7 +533,7 @@ export function FocusToolsPage({ onNavigate }: FocusToolsPageProps) {
                 </CardTitle>
               </CardHeader>
               <CardContent>
-                <div className="grid min-w-[920px] grid-cols-2 items-stretch gap-5 overflow-x-auto pb-1">
+                <div className="grid items-stretch gap-5 lg:grid-cols-2">
                   <div className="flex min-h-[360px] flex-col rounded-lg border border-border bg-background p-4">
                     <div className="mb-3 flex items-center justify-between gap-3">
                       <div className="flex items-center gap-2 text-base font-medium">
@@ -608,7 +648,7 @@ export function FocusToolsPage({ onNavigate }: FocusToolsPageProps) {
                       <div>
                         <p className="font-medium">Focus and emotion tracking</p>
                         <p className="mt-1 text-sm text-secondary">
-                          Send camera frames to the backend while the camera is enabled.
+                          Test live focus and emotion analysis while the camera is enabled.
                         </p>
                       </div>
                       <Switch
@@ -687,7 +727,7 @@ export function FocusToolsPage({ onNavigate }: FocusToolsPageProps) {
                   <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-purple-500/10 text-xs font-medium text-purple-500">
                     1
                   </span>
-                  <p>The page sends camera frames to the connected backend while tracking is on.</p>
+                  <p>The page sends temporary camera frames for live analysis while tracking is on.</p>
                 </div>
                 <div className="flex gap-3 rounded-lg bg-background/70 px-3 py-2">
                   <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-purple-500/10 text-xs font-medium text-purple-500">
@@ -699,7 +739,7 @@ export function FocusToolsPage({ onNavigate }: FocusToolsPageProps) {
                   <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-purple-500/10 text-xs font-medium text-purple-500">
                     3
                   </span>
-                  <p>Video is used for detection feedback only and is not shown as saved here.</p>
+                  <p>Video is used for test feedback only and is not saved to study data here.</p>
                 </div>
               </CardContent>
             </Card>

@@ -16,7 +16,7 @@ import {
 import { Button } from '../ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '../ui/card';
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from '../ui/sheet';
-import type { UploadedDocument } from '../../pages/chat/types/ChatTypes';
+import type { UploadedDocument } from '../../types/ChatTypes';
 
 interface FlashcardStats {
   total: number;

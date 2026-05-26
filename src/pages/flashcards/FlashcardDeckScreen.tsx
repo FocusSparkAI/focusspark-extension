@@ -36,41 +36,22 @@ import {
 import { toast } from 'sonner';
 import { BACKEND_ROUTES } from '../../config/backend';
 import backendClient, { getAuthHeaders } from '../../utils/backendClient';
-
-interface Flashcard {
-  id: string;
-  front: string;
-  back: string;
-  explanation?: string;
-  example?: string;
-  memoryTip?: string;
-  source: 'Topic' | 'Chat' | 'Document';
-  difficulty: 'Easy' | 'Medium' | 'Hard';
-  lastReviewed?: Date;
-  correctCount: number;
-  reviewInterval: number;
-}
-
-interface Deck {
-  id: string;
-  title: string;
-  description: string;
-  topic?: string;
-  cards: Flashcard[];
-  totalCards: number;
-  progress: number;
-  accuracy: number;
-  reviewCount: number;
-  lastReviewed?: Date;
-  sourceType: 'Topic' | 'Chat' | 'Document';
-  linkedDocument?: string;
-}
+import type { Deck, Flashcard } from '../../types/FlashcardTypes';
+import {
+  CHAT_HISTORY_FLASHCARDS_KEY,
+  getDifficultyBadgeClassName,
+  getReviewIntervalDays,
+  getSourceBadgeClassName,
+  isGenericChatFlashcardTitle,
+  isSameLabel,
+  mapCard,
+  mapDeck,
+  normalizeDeckTitle,
+} from '../../types/FlashcardTypes';
 
 interface FlashcardDeckScreenProps {
   onNavigate: (page: string) => void;
 }
-
-const CHAT_HISTORY_FLASHCARDS_KEY = 'focusspark-chat-history-flashcards';
 
 export function FlashcardDeckScreen({ onNavigate }: FlashcardDeckScreenProps) {
   const [searchQuery, setSearchQuery] = useState('');
@@ -80,7 +61,7 @@ export function FlashcardDeckScreen({ onNavigate }: FlashcardDeckScreenProps) {
   const [isLoadingDeckDetails, setIsLoadingDeckDetails] = useState(false);
   const [showCreateDialog, setShowCreateDialog] = useState(false);
   const [newTopic, setNewTopic] = useState('');
-  const [newCardCount, setNewCardCount] = useState('10');
+  const [newCardCount, setNewCardCount] = useState('5');
   const [isCreatingDeck, setIsCreatingDeck] = useState(false);
   const [currentCardIndex, setCurrentCardIndex] = useState(0);
   const [revealedCardIds, setRevealedCardIds] = useState<Set<string>>(() => new Set());
@@ -90,122 +71,6 @@ export function FlashcardDeckScreen({ onNavigate }: FlashcardDeckScreenProps) {
   const [isSavingReview, setIsSavingReview] = useState(false);
   const [answeredCardIds, setAnsweredCardIds] = useState<Set<string>>(() => new Set());
   const [attemptResults, setAttemptResults] = useState<Record<string, boolean>>({});
-
-  const getReviewIntervalDays = (known: boolean) => (known ? 3 : 1);
-
-  const parseDate = (value: unknown) => {
-    if (!value) return undefined;
-    const date = new Date(String(value));
-    return Number.isNaN(date.getTime()) ? undefined : date;
-  };
-
-  const getDeckSourceType = (d: any): Deck['sourceType'] => {
-    const sourceText = String(d.source_type ?? d.sourceType ?? d.source ?? '').toLowerCase();
-    if (sourceText.includes('chat') || d.chat_id || d.thread_id || d.message_id) return 'Chat';
-    if (sourceText.includes('document') || d.document_id || d.linked_document_id) return 'Document';
-    return 'Topic';
-  };
-
-  const getSourceBadgeClassName = (sourceType: Deck['sourceType']) => {
-    if (sourceType === 'Chat') {
-      return 'flashcard-source-badge flashcard-source-badge-chat';
-    }
-
-    if (sourceType === 'Document') {
-      return 'flashcard-source-badge flashcard-source-badge-document';
-    }
-
-    return 'flashcard-source-badge flashcard-source-badge-topic';
-  };
-
-  const getDifficultyBadgeClassName = (difficulty: Flashcard['difficulty']) => {
-    if (difficulty === 'Easy') return 'flashcard-difficulty-badge flashcard-difficulty-easy';
-    if (difficulty === 'Hard') return 'flashcard-difficulty-badge flashcard-difficulty-hard';
-    return 'flashcard-difficulty-badge flashcard-difficulty-medium';
-  };
-
-  const isGenericChatFlashcardTitle = (value: unknown) => {
-    const title = String(value ?? '').trim().toLowerCase();
-    return !title || title === 'chat flashcards' || title === 'flashcards' || title === 'flashcard deck';
-  };
-
-  const normalizeDeckTitle = (value: unknown) => {
-    const title = String(value ?? '').trim();
-    if (!title) return '';
-    const strippedTitle = title.replace(/\s+flashcards$/i, '').trim() || title;
-    return strippedTitle.charAt(0).toUpperCase() + strippedTitle.slice(1);
-  };
-
-  const isSameLabel = (left: unknown, right: unknown) =>
-    String(left ?? '').trim().toLowerCase() === String(right ?? '').trim().toLowerCase();
-
-  const getTitleFromRawCards = (value: unknown) => {
-    const payload = value as Record<string, unknown> | undefined;
-    const cards = Array.isArray(payload?.flashcards)
-      ? payload.flashcards
-      : Array.isArray(payload?.cards)
-        ? payload.cards
-        : [];
-    const firstCard = cards[0] as Record<string, unknown> | undefined;
-    const firstQuestion = String(firstCard?.front ?? firstCard?.question ?? firstCard?.title ?? '').trim();
-    return firstQuestion;
-  };
-
-  const mapDeck = (d: any): Deck => {
-    const rawTitle = normalizeDeckTitle(d.title || d.name);
-    const topicTitle = normalizeDeckTitle(d.topic ?? d.subject);
-    const firstCardTitle = normalizeDeckTitle(getTitleFromRawCards(d));
-    const title = isGenericChatFlashcardTitle(rawTitle)
-      ? firstCardTitle || topicTitle || 'Untitled Flashcards'
-      : rawTitle;
-    const rawDescription = normalizeDeckTitle(d.description);
-    const description = rawDescription && !isSameLabel(rawDescription, title)
-      ? rawDescription
-      : topicTitle && !isSameLabel(topicTitle, title)
-        ? topicTitle
-        : firstCardTitle && !isSameLabel(firstCardTitle, title)
-          ? firstCardTitle
-          : '';
-
-    return {
-      id: String(d.id),
-      title,
-      description,
-      topic: topicTitle || undefined,
-      cards: [],
-      totalCards: Number(d.total_cards ?? 0),
-      progress: Number(d.progress ?? d.completion_percentage ?? 0),
-      accuracy: Number(d.accuracy ?? d.correct_percentage ?? 0),
-      reviewCount: Number(d.review_count ?? d.reviewCount ?? d.total_reviews ?? d.totalReviews ?? 0),
-      lastReviewed: parseDate(d.last_reviewed ?? d.lastReviewed),
-      sourceType: getDeckSourceType(d),
-      linkedDocument: d.linked_document ?? d.linkedDocument ?? d.linked_document_id ? String(d.linked_document ?? d.linkedDocument ?? d.linked_document_id) : undefined,
-    };
-  };
-
-  const mapCard = (c: any): Flashcard => {
-    const sourceText = String(c.source_type ?? c.sourceType ?? c.source ?? '').toLowerCase();
-    const source = sourceText.includes('chat')
-      ? 'Chat'
-      : sourceText.includes('document')
-        ? 'Document'
-        : 'Topic';
-    const difficulty = ['Easy', 'Medium', 'Hard'].includes(c.difficulty) ? c.difficulty : 'Medium';
-
-    return {
-      id: String(c.id),
-      front: c.front || '',
-      back: c.back || '',
-      explanation: c.explanation || '',
-      example: c.example || '',
-      memoryTip: c.memory_tip || c.memoryTip || '',
-      source,
-      difficulty,
-      lastReviewed: parseDate(c.last_reviewed ?? c.lastReviewed),
-      correctCount: Number(c.correct_count ?? c.correctCount ?? 0),
-      reviewInterval: Number(c.review_interval ?? c.reviewInterval ?? 1),
-    };
-  };
 
   const fetchDecks = async () => {
     setIsLoadingDecks(true);
@@ -301,6 +166,9 @@ export function FlashcardDeckScreen({ onNavigate }: FlashcardDeckScreenProps) {
       return;
     }
 
+    const topicLabel = normalizeDeckTitle(newTopic);
+    const previousDeckIds = new Set(decks.map((deck) => deck.id));
+
     setIsCreatingDeck(true);
     try {
       const authHeaders = await getAuthHeaders();
@@ -331,16 +199,41 @@ export function FlashcardDeckScreen({ onNavigate }: FlashcardDeckScreenProps) {
 
       setShowCreateDialog(false);
       setNewTopic('');
-      setNewCardCount('10');
+      setNewCardCount('5');
       toast.success('Flashcard deck created successfully.');
     } catch (err: any) {
       const status = err?.response?.status;
       if (status === 401) {
         toast.error('Unauthorized. Please sign in to create flashcards.');
-      } else if (status === 502) {
-        toast.error('Flashcard generation failed at the backend. Please try again in a moment.');
       } else {
-        toast.error('Failed to create flashcard deck.');
+        try {
+          const authHeaders = await getAuthHeaders();
+          const decksResponse = await backendClient.get(BACKEND_ROUTES.flashcards, { headers: authHeaders });
+          const refreshedDecks = (Array.isArray(decksResponse.data) ? decksResponse.data : []).map((deck: any) => mapDeck(deck));
+          setDecks(refreshedDecks);
+
+          const recoveredDeck = refreshedDecks.find((deck) =>
+            !previousDeckIds.has(deck.id) &&
+            (isSameLabel(deck.title, topicLabel) || isSameLabel(deck.topic, topicLabel)),
+          );
+
+          if (recoveredDeck) {
+            await fetchDeckById(recoveredDeck);
+            setShowCreateDialog(false);
+            setNewTopic('');
+            setNewCardCount('5');
+            toast.success('Flashcard deck created successfully.');
+            return;
+          }
+        } catch {
+          // Keep the original create error message below.
+        }
+
+        if (status === 502) {
+          toast.error('Flashcard generation failed at the backend. Please try again in a moment.');
+        } else {
+          toast.error(err?.response?.data?.detail || 'Failed to create flashcard deck.');
+        }
       }
     } finally {
       setIsCreatingDeck(false);
@@ -427,6 +320,7 @@ export function FlashcardDeckScreen({ onNavigate }: FlashcardDeckScreenProps) {
         progress: 0,
         accuracy: 0,
         reviewCount: 0,
+        createdAt: new Date(),
         sourceType: 'Chat',
       });
       setCurrentCardIndex(0);
@@ -461,6 +355,31 @@ export function FlashcardDeckScreen({ onNavigate }: FlashcardDeckScreenProps) {
   const hasAnsweredCurrentCard = currentCard ? answeredCardIds.has(currentCard.id) : false;
   const isCurrentCardRevealed = currentCard ? revealedCardIds.has(currentCard.id) : false;
   const canAnswerCurrentCard = !isCurrentCardRevealed && !hasAnsweredCurrentCard && !isSavingReview;
+
+  const isKeyboardInputTarget = (target: EventTarget | null) => {
+    const element = target as HTMLElement | null;
+    if (!element) return false;
+    return Boolean(element.closest('input, textarea, select, button, [contenteditable="true"]'));
+  };
+
+  const revealCurrentCard = () => {
+    if (currentCard && !isCurrentCardRevealed) {
+      setStudyControlsLocked(true);
+      setRevealedCardIds((current) => new Set(current).add(currentCard.id));
+    }
+  };
+
+  const handlePreviousCard = () => {
+    if (currentCardIndex > 0) {
+      setCurrentCardIndex(currentCardIndex - 1);
+    }
+  };
+
+  const handleNextCard = () => {
+    if (selectedDeck && currentCardIndex < selectedDeck.cards.length - 1 && isCurrentCardRevealed) {
+      setCurrentCardIndex(currentCardIndex + 1);
+    }
+  };
 
   const handleCardReview = async (known: boolean) => {
     if (!selectedDeck || !currentCard || !canAnswerCurrentCard) return;
@@ -572,6 +491,54 @@ export function FlashcardDeckScreen({ onNavigate }: FlashcardDeckScreenProps) {
     setAttemptResults({});
     toast('Deck shuffled!');
   };
+
+  useEffect(() => {
+    if (!selectedDeck || showCreateDialog) return;
+
+    const handleFlashcardKeyDown = (event: KeyboardEvent) => {
+      if (isKeyboardInputTarget(event.target)) return;
+
+      if (event.key === ' ' || event.key === 'Enter') {
+        event.preventDefault();
+        revealCurrentCard();
+        return;
+      }
+
+      if (event.key.toLowerCase() === 'k') {
+        event.preventDefault();
+        void handleCardReview(true);
+        return;
+      }
+
+      if (event.key === 'ArrowLeft') {
+        event.preventDefault();
+        handlePreviousCard();
+        return;
+      }
+
+      if (event.key === 'ArrowRight') {
+        event.preventDefault();
+        handleNextCard();
+        return;
+      }
+
+      if (event.key.toLowerCase() === 's') {
+        event.preventDefault();
+        handleShuffle();
+      }
+    };
+
+    window.addEventListener('keydown', handleFlashcardKeyDown);
+    return () => window.removeEventListener('keydown', handleFlashcardKeyDown);
+  }, [
+    canAnswerCurrentCard,
+    currentCard,
+    currentCardIndex,
+    isCurrentCardRevealed,
+    selectedDeck,
+    showCreateDialog,
+    studyControlsLocked,
+  ]);
 
   // Confetti particles
   useEffect(() => {
@@ -793,6 +760,12 @@ export function FlashcardDeckScreen({ onNavigate }: FlashcardDeckScreenProps) {
                         </span>
                       </div>
                       <div className="flex justify-between">
+                        <span className="flashcard-stat-label">Created:</span>
+                        <span className="flashcard-date-text">
+                          {deck.createdAt?.toLocaleDateString() ?? 'Unknown'}
+                        </span>
+                      </div>
+                      <div className="flex justify-between">
                         <span className="flashcard-stat-label">Last Reviewed:</span>
                         <span className="flashcard-date-text">
                           {deck.lastReviewed?.toLocaleDateString() ?? 'Not reviewed'}
@@ -916,12 +889,10 @@ export function FlashcardDeckScreen({ onNavigate }: FlashcardDeckScreenProps) {
               >
                 <motion.div
                   className="relative h-96 cursor-pointer"
-                  onClick={() => {
-                    if (currentCard && !isCurrentCardRevealed) {
-                      setStudyControlsLocked(true);
-                      setRevealedCardIds((current) => new Set(current).add(currentCard.id));
-                    }
-                  }}
+                  onClick={revealCurrentCard}
+                  role="button"
+                  tabIndex={0}
+                  aria-label={isCurrentCardRevealed ? 'Flashcard answer revealed' : 'Reveal flashcard answer'}
                   animate={{ rotateY: isCurrentCardRevealed ? 180 : 0 }}
                   transition={{ duration: 0.6, ease: 'easeInOut' }}
                   style={{ transformStyle: 'preserve-3d' }}
@@ -1033,11 +1004,7 @@ export function FlashcardDeckScreen({ onNavigate }: FlashcardDeckScreenProps) {
             <div className="flex items-center justify-between">
               <Button
                 variant="outline"
-                onClick={() => {
-                  if (currentCardIndex > 0) {
-                    setCurrentCardIndex(currentCardIndex - 1);
-                  }
-                }}
+                onClick={handlePreviousCard}
                 disabled={currentCardIndex === 0}
               >
                 <ArrowLeft className="w-4 h-4 mr-2" />
@@ -1046,11 +1013,7 @@ export function FlashcardDeckScreen({ onNavigate }: FlashcardDeckScreenProps) {
 
               <Button
                 variant="outline"
-                onClick={() => {
-                  if (currentCardIndex < selectedDeck.cards.length - 1) {
-                    setCurrentCardIndex(currentCardIndex + 1);
-                  }
-                }}
+                onClick={handleNextCard}
                 disabled={
                   currentCardIndex === selectedDeck.cards.length - 1 || !isCurrentCardRevealed
                 }

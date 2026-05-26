@@ -33,255 +33,29 @@ import {
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { BACKEND_ROUTES } from '../../config/backend';
-
-interface QuizQuestion {
-  id: string;
-  question: string;
-  choices: string[];
-  correctAnswer: number;
-  explanation: string;
-  relatedFlashcardId?: string;
-  topic: string;
-}
-
-interface Quiz {
-  id: string;
-  title: string;
-  description: string;
-  category: string;
-  topic?: string;
-  sourceType?: QuizSourceType;
-  difficulty: 'Beginner' | 'Intermediate' | 'Advanced';
-  questions: QuizQuestion[];
-  timeLimit?: number; // in seconds
-  passingScore: number; // percentage
-  totalAttempts: number;
-  questionCount: number;
-  bestScore: number;
-  averageScore: number;
-  lastAttempted?: Date;
-  tags: string[];
-  linkedDocument?: string;
-}
-
-type QuizSourceType = 'Chat' | 'Topic';
+import type { Quiz, QuizQuestion } from '../../types/QuizTypes';
+import {
+  CHAT_HISTORY_QUIZ_KEY,
+  deriveDisplayQuizTitle,
+  getQuizSourceBadgeClassName,
+  getQuizSourceType,
+  getQuizTimeLimit,
+  isGenericChatQuizTitle,
+  mapQuizQuestion,
+  normalizeCorrectAnswer,
+  normalizeDifficulty,
+  normalizeQuizTitle,
+  normalizeQuizSourceType,
+  parseQuizDate,
+  toQuizHeadingFromQuestion,
+} from '../../types/QuizTypes';
 
 interface QuizScreenProps {
   onNavigate: (page: string) => void;
 }
 
-const CHAT_HISTORY_QUIZ_KEY = 'focusspark-chat-history-quiz';
-
-const DIFFICULTY_TIME_LIMITS: Record<Quiz['difficulty'], number> = {
-  Beginner: 5 * 60,
-  Intermediate: 10 * 60,
-  Advanced: 15 * 60,
-};
-
-const normalizeDifficulty = (difficulty: unknown): Quiz['difficulty'] => {
-  const value = String(difficulty || '').toLowerCase();
-  if (value === 'advanced') return 'Advanced';
-  if (value === 'intermediate') return 'Intermediate';
-  return 'Beginner';
-};
-
-const getQuizTimeLimit = (quiz: Pick<Quiz, 'difficulty' | 'timeLimit'>) =>
-  quiz.timeLimit ?? DIFFICULTY_TIME_LIMITS[quiz.difficulty];
-
-const isGenericChatQuizTitle = (title: unknown) => {
-  const normalized = String(title ?? '').trim().toLowerCase();
-  return (
-    normalized === '' ||
-    normalized === 'chat quiz' ||
-    normalized === 'quiz' ||
-    normalized === 'chat' ||
-    normalized === 'generated quiz'
-  );
-};
-
-const toQuizHeadingFromQuestion = (question: unknown) => {
-  const text = String(question ?? '').trim();
-  if (!text) return 'Quiz';
-  const heading = text.length > 80 ? `${text.slice(0, 77).trimEnd()}...` : text;
-  return heading.charAt(0).toUpperCase() + heading.slice(1);
-};
-
-const stripTrailingQuizWord = (title: unknown) => {
-  const rawTitle = String(title ?? '').trim();
-  if (!rawTitle) return '';
-  const strippedTitle = rawTitle.replace(/\s+quiz$/i, '').trim();
-  return strippedTitle || rawTitle;
-};
-
-const capitalizeFirstLetter = (value: unknown) => {
-  const text = String(value ?? '').trim();
-  if (!text) return '';
-  return text.charAt(0).toUpperCase() + text.slice(1);
-};
-
-const normalizeQuizTitle = (value: unknown) => capitalizeFirstLetter(stripTrailingQuizWord(value));
-
-const getFirstQuestionTitle = (questions: unknown) => {
-  if (!Array.isArray(questions) || questions.length === 0) return '';
-  const first = questions[0] as Record<string, unknown> | undefined;
-  const question = String(first?.question ?? first?.title ?? '').trim();
-  return question;
-};
-
-const deriveDisplayQuizTitle = ({
-  rawTitle,
-  fallbackTopic,
-  questions,
-}: {
-  rawTitle: unknown;
-  fallbackTopic?: unknown;
-  questions?: unknown;
-}) => {
-  if (!isGenericChatQuizTitle(rawTitle)) {
-    return normalizeQuizTitle(rawTitle);
-  }
-
-  const firstQuestion = getFirstQuestionTitle(questions);
-  if (firstQuestion) return toQuizHeadingFromQuestion(firstQuestion);
-
-  const topic = String(fallbackTopic ?? '').trim();
-  if (topic && topic.toLowerCase() !== 'general') {
-    return normalizeQuizTitle(topic);
-  }
-
-  return 'Untitled Quiz';
-};
-
-const normalizeQuizSourceType = (value: unknown): QuizSourceType | undefined => {
-  const normalized = String(value ?? '').trim().toLowerCase();
-  if (!normalized) return undefined;
-  const tokens = normalized.split(/[^a-z]+/).filter(Boolean);
-  if (tokens.includes('chat')) return 'Chat';
-  if (tokens.includes('topic')) return 'Topic';
-  if (normalized === 'chat') return 'Chat';
-  if (normalized === 'topic') return 'Topic';
-  return undefined;
-};
-
-const getQuizSourceType = (quiz: Pick<Quiz, 'sourceType' | 'category' | 'tags' | 'description'>): QuizSourceType => {
-  if (quiz.sourceType) return quiz.sourceType;
-
-  const category = String(quiz.category ?? '').trim().toLowerCase();
-  const tags = Array.isArray(quiz.tags) ? quiz.tags.map((tag) => String(tag).trim().toLowerCase()) : [];
-
-  if (category === 'chat' || tags.includes('chat')) {
-    return 'Chat';
-  }
-
-  return 'Topic';
-};
-
-const getQuizSourceBadgeClassName = (source: QuizSourceType) =>
-  source === 'Chat'
-    ? 'flashcard-source-badge flashcard-source-badge-chat'
-    : 'flashcard-source-badge flashcard-source-badge-topic';
-
-const normalizeCorrectAnswerIndex = (
-  value: unknown,
-  choices: string[],
-  preferOneBased = false
-) => {
-  if (typeof value === 'string') {
-    const normalizedValue = value.trim().toLowerCase();
-    const letterMatch = normalizedValue.match(/(?:^|\b)(?:option\s*)?([a-z])(?:\b|$)/);
-    if (letterMatch) {
-      const letterIndex = letterMatch[1].charCodeAt(0) - 'a'.charCodeAt(0);
-      if (letterIndex >= 0 && letterIndex < choices.length) return letterIndex;
-    }
-  }
-
-  const numericValue =
-    typeof value === 'number'
-      ? value
-      : typeof value === 'string' && value.trim() !== ''
-      ? Number(value)
-      : Number.NaN;
-
-  if (!Number.isFinite(numericValue)) return 0;
-
-  const index = Math.trunc(numericValue);
-  if (preferOneBased && index >= 1 && index <= choices.length) return index - 1;
-  if (index >= 0 && index < choices.length) return index;
-  if (index >= 1 && index - 1 < choices.length) return index - 1;
-
-  return 0;
-};
-
-const normalizeCorrectAnswer = (question: any, choices: string[]) => {
-  const candidateKeys = [
-    'correct_answer_index',
-    'correctAnswer',
-    'correct_answer',
-    'correct_option',
-    'correctOption',
-    'correct_choice',
-    'correctChoice',
-    'answer_index',
-    'answerIndex',
-    'answer',
-  ];
-
-  for (const key of candidateKeys) {
-    const candidate = question[key];
-    if (candidate === undefined || candidate === null || candidate === '') continue;
-
-    if (typeof candidate === 'string') {
-      const answerText = candidate.trim().toLowerCase();
-      const answerIndex = choices.findIndex((choice) => String(choice).trim().toLowerCase() === answerText);
-      if (answerIndex >= 0) return answerIndex;
-    }
-
-    const preferOneBased =
-      key === 'correct_answer' ||
-      key === 'correct_option' ||
-      key === 'correctOption' ||
-      key === 'correct_choice' ||
-      key === 'correctChoice';
-    const answerIndex = normalizeCorrectAnswerIndex(candidate, choices, preferOneBased);
-    if (answerIndex >= 0 && answerIndex < choices.length) return answerIndex;
-  }
-
-  return 0;
-};
-
-const mapQuizQuestion = (question: any): QuizQuestion => {
-  const choices = question.choices || question.options || [];
-  const mappedQuestion = {
-    id: String(question.id),
-    question: question.question,
-    choices,
-    correctAnswer: normalizeCorrectAnswer(question, choices),
-    explanation: question.explanation || '',
-    relatedFlashcardId: question.related_flashcard_id ?? question.relatedFlashcardId,
-    topic: question.topic || '',
-  };
-
-  if (import.meta.env.DEV) {
-    // eslint-disable-next-line no-console
-    console.debug('[QuizScreen] mapped question answer', {
-      id: mappedQuestion.id,
-      rawCorrectAnswer: question.correct_answer,
-      rawCorrectAnswerIndex: question.correct_answer_index,
-      rawCorrectOption: question.correct_option ?? question.correctOption,
-      rawCorrectChoice: question.correct_choice ?? question.correctChoice,
-      rawAnswerIndex: question.answer_index ?? question.answerIndex,
-      rawAnswer: question.answer,
-      mappedCorrectAnswer: mappedQuestion.correctAnswer,
-      choices,
-    });
-  }
-
-  return mappedQuestion;
-};
-
 export function QuizScreen({ onNavigate }: QuizScreenProps) {
   const chromeApi = (globalThis as typeof globalThis & { chrome?: any }).chrome;
-  const academicFocus = localStorage.getItem('focusspark-academic-focus') || 'General';
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedQuiz, setSelectedQuiz] = useState<Quiz | null>(null);
   const [currentQuestionIndex, setCurrentQuestionIndex] = useState(0);
@@ -400,7 +174,8 @@ export function QuizScreen({ onNavigate }: QuizScreenProps) {
           questionCount,
           bestScore: q.best_score ?? 0,
           averageScore: q.average_score ?? 0,
-          lastAttempted: q.created_at ? new Date(q.created_at) : undefined,
+          createdAt: parseQuizDate(q.created_at ?? q.createdAt),
+          lastAttempted: parseQuizDate(q.last_attempted ?? q.lastAttempted),
           tags: Array.isArray(q.tags) ? q.tags : [],
           linkedDocument: q.linked_document_id ? String(q.linked_document_id) : undefined,
           questions: [],
@@ -494,6 +269,7 @@ export function QuizScreen({ onNavigate }: QuizScreenProps) {
               questionCount: questions.length,
               bestScore: quizMeta.best_score ?? 0,
               averageScore: quizMeta.average_score ?? 0,
+              createdAt: parseQuizDate(quizMeta.created_at ?? quizMeta.createdAt),
               tags: Array.isArray(quizMeta.tags) ? quizMeta.tags : ['chat'],
               linkedDocument: quizMeta.linked_document_id ? String(quizMeta.linked_document_id) : undefined,
             };
@@ -549,6 +325,7 @@ export function QuizScreen({ onNavigate }: QuizScreenProps) {
         questionCount: questions.length,
         bestScore: 0,
         averageScore: 0,
+        createdAt: new Date(),
         tags: ['chat'],
       };
 
@@ -574,7 +351,7 @@ export function QuizScreen({ onNavigate }: QuizScreenProps) {
       quiz.tags.some((tag) => tag.toLowerCase().includes(searchQuery.toLowerCase()))
   );
 
-  // Initialize selected answers array when quiz is selected
+  // Initialize selected answers array when a new quiz is selected.
   useEffect(() => {
     if (selectedQuiz) {
       setSelectedAnswers(new Array(selectedQuiz.questions.length).fill(null));
@@ -582,7 +359,7 @@ export function QuizScreen({ onNavigate }: QuizScreenProps) {
       setReviewedQuestions(new Array(selectedQuiz.questions.length).fill(false));
       setTimeRemaining(getQuizTimeLimit(selectedQuiz));
     }
-  }, [selectedQuiz]);
+  }, [selectedQuiz?.id]);
 
   // Timer
   useEffect(() => {
@@ -616,6 +393,13 @@ export function QuizScreen({ onNavigate }: QuizScreenProps) {
 
   const currentQuestion = selectedQuiz?.questions[currentQuestionIndex];
   const currentAnswer = selectedAnswers[currentQuestionIndex];
+  const hasCurrentAnswer = typeof currentAnswer === 'number';
+
+  const isKeyboardInputTarget = (target: EventTarget | null) => {
+    const element = target as HTMLElement | null;
+    if (!element) return false;
+    return Boolean(element.closest('input, textarea, select, button, [contenteditable="true"]'));
+  };
 
   const handleAnswerSelect = (choiceIndex: number) => {
     const newAnswers = [...selectedAnswers];
@@ -644,7 +428,7 @@ export function QuizScreen({ onNavigate }: QuizScreenProps) {
   };
 
   const handleSubmitAnswer = () => {
-    if (currentAnswer === null) {
+    if (!hasCurrentAnswer) {
       toast.error('Please select an answer first.');
       return;
     }
@@ -681,8 +465,11 @@ export function QuizScreen({ onNavigate }: QuizScreenProps) {
   const handleSubmitAll = async (allowIncomplete = false) => {
     if (!selectedQuiz) return;
 
-    const unansweredCount = selectedAnswers.filter(
-      (answer, index) => answer === null && !skippedAnswers[index]
+    const unansweredCount = selectedQuiz.questions.filter(
+      (_, index) =>
+        typeof selectedAnswers[index] !== 'number' &&
+        !skippedAnswers[index] &&
+        !reviewedQuestions[index]
     ).length;
 
     if (!allowIncomplete && unansweredCount > 0) {
@@ -694,8 +481,8 @@ export function QuizScreen({ onNavigate }: QuizScreenProps) {
     setShowSummary(true);
     disableQuizStrictMode();
 
-    const correctCount = selectedAnswers.filter(
-      (answer, index) => answer === selectedQuiz.questions[index].correctAnswer
+    const correctCount = selectedQuiz.questions.filter(
+      (question, index) => selectedAnswers[index] === question.correctAnswer
     ).length;
 
     const percentage = Math.round((correctCount / selectedQuiz.questions.length) * 100);
@@ -737,7 +524,6 @@ export function QuizScreen({ onNavigate }: QuizScreenProps) {
       setQuizzes((currentQuizzes) =>
         currentQuizzes.map((quiz) => (quiz.id === selectedQuiz.id ? updateQuizStats(quiz) : quiz))
       );
-      await fetchQuizzes();
     } catch (e) {
       // Keep the result summary local if the backend is unavailable.
     }
@@ -748,22 +534,75 @@ export function QuizScreen({ onNavigate }: QuizScreenProps) {
     }
   };
 
+  useEffect(() => {
+    if (!selectedQuiz || showSummary || showCreateDialog) return;
+
+    const handleQuizKeyDown = (event: KeyboardEvent) => {
+      if (isKeyboardInputTarget(event.target)) return;
+
+      const numericChoice = Number(event.key);
+      if (
+        Number.isInteger(numericChoice) &&
+        numericChoice >= 1 &&
+        currentQuestion &&
+        numericChoice <= currentQuestion.choices.length &&
+        !showFeedback
+      ) {
+        event.preventDefault();
+        handleAnswerSelect(numericChoice - 1);
+        return;
+      }
+
+      if (event.key === 'Enter') {
+        event.preventDefault();
+        if (!showFeedback) {
+          handleSubmitAnswer();
+        } else if (currentQuestionIndex < selectedQuiz.questions.length - 1) {
+          handleNext();
+        } else {
+          void handleSubmitAll();
+        }
+        return;
+      }
+
+      if (event.key === 'ArrowLeft') {
+        event.preventDefault();
+        handlePrevious();
+        return;
+      }
+
+      if (event.key === 'ArrowRight' && showFeedback) {
+        event.preventDefault();
+        if (currentQuestionIndex < selectedQuiz.questions.length - 1) {
+          handleNext();
+        }
+      }
+    };
+
+    window.addEventListener('keydown', handleQuizKeyDown);
+    return () => window.removeEventListener('keydown', handleQuizKeyDown);
+  }, [
+    currentAnswer,
+    currentQuestion,
+    currentQuestionIndex,
+    selectedQuiz,
+    showCreateDialog,
+    showFeedback,
+    showSummary,
+    selectedAnswers,
+    skippedAnswers,
+    reviewedQuestions,
+  ]);
+
   const correctCount = selectedQuiz
-    ? selectedAnswers.filter(
-        (answer, index) => answer !== null && answer === selectedQuiz.questions[index].correctAnswer
+    ? selectedQuiz.questions.filter(
+        (question, index) => selectedAnswers[index] === question.correctAnswer
       ).length
     : 0;
 
   const percentage = selectedQuiz
     ? Math.round((correctCount / selectedQuiz.questions.length) * 100)
     : 0;
-
-  const weakTopics = selectedQuiz
-    ? selectedQuiz.questions
-        .filter((q, index) => selectedAnswers[index] !== q.correctAnswer)
-        .map((q) => q.topic)
-        .filter((value, index, self) => self.indexOf(value) === index)
-    : [];
 
   const handleRetry = () => {
     if (!selectedQuiz) return;
@@ -831,7 +670,8 @@ export function QuizScreen({ onNavigate }: QuizScreenProps) {
             questionCount: full.total_questions ?? full.question_count ?? quiz.questionCount ?? mappedQuestions.length,
             bestScore: full.best_score ?? quiz.bestScore ?? 0,
             averageScore: full.average_score ?? quiz.averageScore ?? 0,
-            lastAttempted: full.created_at ? new Date(full.created_at) : quiz.lastAttempted,
+            createdAt: parseQuizDate(full.created_at ?? full.createdAt) ?? quiz.createdAt,
+            lastAttempted: parseQuizDate(full.last_attempted ?? full.lastAttempted) ?? quiz.lastAttempted,
             tags: Array.isArray(full.tags) ? full.tags : quiz.tags,
             linkedDocument: full.linked_document_id ? String(full.linked_document_id) : quiz.linkedDocument,
             questions: mappedQuestions,
@@ -926,6 +766,9 @@ export function QuizScreen({ onNavigate }: QuizScreenProps) {
       return;
     }
 
+    const topicLabel = normalizeQuizTitle(newTopic);
+    const previousQuizIds = new Set(quizzes.map((quiz) => quiz.id));
+
     setIsCreatingQuiz(true);
     try {
       const authHeaders = await getAuthHeaders();
@@ -970,7 +813,8 @@ export function QuizScreen({ onNavigate }: QuizScreenProps) {
             (Array.isArray(createdQuestions) ? createdQuestions.length : 0),
           bestScore: created.best_score ?? 0,
           averageScore: created.average_score ?? 0,
-          lastAttempted: created.created_at ? new Date(created.created_at) : undefined,
+          createdAt: parseQuizDate(created.created_at ?? created.createdAt),
+          lastAttempted: parseQuizDate(created.last_attempted ?? created.lastAttempted),
           tags: Array.isArray(created.tags) ? created.tags : [],
           linkedDocument: created.linked_document_id ? String(created.linked_document_id) : undefined,
           questions: Array.isArray(createdQuestions) ? createdQuestions.map((question: any) => mapQuizQuestion(question)) : [],
@@ -981,6 +825,68 @@ export function QuizScreen({ onNavigate }: QuizScreenProps) {
     } catch (err: any) {
       console.error('Create quiz failed', err);
       const status = err?.response?.status;
+      if (status !== 401) {
+        try {
+          const authHeaders = await getAuthHeaders();
+          const quizzesResponse = await backendClient.get(BACKEND_ROUTES.quiz, { headers: authHeaders });
+          const data = Array.isArray(quizzesResponse.data) ? quizzesResponse.data : [];
+          const refreshedQuizzes = data.map((q: any) => {
+            const questionCount =
+              q.total_questions ??
+              q.question_count ??
+              q.questions_count ??
+              (Array.isArray(q.questions) ? q.questions.length : 0);
+
+            return {
+              id: String(q.id),
+              title: deriveDisplayQuizTitle({
+                rawTitle: q.title,
+                fallbackTopic: q.topic ?? q.category,
+                questions: q.questions,
+              }),
+              description: q.description || '',
+              category: q.category || q.topic || 'General',
+              topic: q.topic || q.category || 'General',
+              sourceType:
+                normalizeQuizSourceType(q.sourceType) ||
+                normalizeQuizSourceType(q.source_type) ||
+                normalizeQuizSourceType(q.source) ||
+                normalizeQuizSourceType(q.origin) ||
+                normalizeQuizSourceType(q.generated_from),
+              difficulty: normalizeDifficulty(q.difficulty),
+              timeLimit: q.time_limit_seconds ?? undefined,
+              passingScore: q.passing_score ?? 0,
+              totalAttempts: q.total_attempts ?? 0,
+              questionCount,
+              bestScore: q.best_score ?? 0,
+              averageScore: q.average_score ?? 0,
+              createdAt: parseQuizDate(q.created_at ?? q.createdAt),
+              lastAttempted: parseQuizDate(q.last_attempted ?? q.lastAttempted),
+              tags: Array.isArray(q.tags) ? q.tags : [],
+              linkedDocument: q.linked_document_id ? String(q.linked_document_id) : undefined,
+              questions: [],
+            } as Quiz;
+          });
+
+          setQuizzes(refreshedQuizzes);
+
+          const recoveredQuiz = refreshedQuizzes.find(
+            (quiz) =>
+              !previousQuizIds.has(quiz.id) &&
+              (normalizeQuizTitle(quiz.title) === topicLabel || normalizeQuizTitle(quiz.topic) === topicLabel),
+          );
+
+          if (recoveredQuiz) {
+            setShowCreateDialog(false);
+            setNewTopic('');
+            setNewDifficulty('Beginner');
+            toast.success('Quiz created successfully.');
+            return;
+          }
+        } catch {
+          // Keep the original create error below when recovery cannot confirm a new quiz.
+        }
+      }
       if (status === 401) toast.error('Unauthorized — please sign in');
       else toast.error('Failed to create quiz');
     } finally {
@@ -1222,7 +1128,19 @@ export function QuizScreen({ onNavigate }: QuizScreenProps) {
                 animate={{ opacity: 1, y: 0 }}
                 transition={{ delay: index * 0.1 }}
               >
-                <Card className="quiz-selection-card flex h-full flex-col" onClick={() => handleStartQuiz(quiz)}>
+                <Card
+                  className="quiz-selection-card flex h-full flex-col"
+                  onClick={() => handleStartQuiz(quiz)}
+                  onKeyDown={(event) => {
+                    if (event.key === 'Enter' || event.key === ' ') {
+                      event.preventDefault();
+                      handleStartQuiz(quiz);
+                    }
+                  }}
+                  role="button"
+                  tabIndex={0}
+                  aria-label={`Start ${quiz.title} quiz`}
+                >
                   <CardHeader className="min-h-[116px]">
                     <div className="quiz-selection-header">
                       <CardTitle className="quiz-selection-title">{quiz.title}</CardTitle>
@@ -1288,26 +1206,26 @@ export function QuizScreen({ onNavigate }: QuizScreenProps) {
                     </div>
 
                     {/* Performance Bar */}
-                    {quiz.totalAttempts > 0 && (
-                      <div className="space-y-2">
-                        <div className="flex justify-between text-xs">
-                          <span className="quiz-perf-label">Average Performance</span>
-                          <span className="quiz-perf-value">{quiz.averageScore}%</span>
-                        </div>
-                        <Progress value={quiz.averageScore} className="h-2" />
+                    <div className="space-y-2">
+                      <div className="flex justify-between text-xs">
+                        <span className="quiz-perf-label">Average Performance</span>
+                        <span className="quiz-perf-value">{quiz.averageScore}%</span>
                       </div>
-                    )}
+                      <Progress value={quiz.averageScore} className="h-2" />
+                    </div>
 
                     {/* Additional Info */}
                     <div className="quiz-additional-info">
                       <div className="flex justify-between text-xs">
-                        <span className="quiz-info-label">Category:</span>
-                        <span className="quiz-info-value">{academicFocus}</span>
-                      </div>
-                      <div className="flex justify-between text-xs">
                         <span className="quiz-info-label">Passing Score:</span>
                         <span className="quiz-info-value">{quiz.passingScore}%</span>
                       </div>
+                      {quiz.createdAt && (
+                        <div className="flex justify-between text-xs">
+                          <span className="quiz-info-label">Created:</span>
+                          <span className="quiz-info-date">{quiz.createdAt.toLocaleDateString()}</span>
+                        </div>
+                      )}
                       {quiz.lastAttempted && (
                         <div className="flex justify-between text-xs">
                           <span className="quiz-info-label">Last Attempted:</span>
@@ -1440,7 +1358,7 @@ export function QuizScreen({ onNavigate }: QuizScreenProps) {
                       <Button variant="outline" onClick={handleDontKnow}>
                         I don't know
                       </Button>
-                      <Button onClick={handleSubmitAnswer} disabled={currentAnswer === null}>
+                      <Button onClick={handleSubmitAnswer} disabled={!hasCurrentAnswer}>
                         Submit Answer
                       </Button>
                     </>
@@ -1554,20 +1472,6 @@ export function QuizScreen({ onNavigate }: QuizScreenProps) {
                   {percentage >= selectedQuiz.passingScore ? '✅ Passed' : '❌ Not Passed'}
                 </p>
                 <p className="quiz-pass-requirement">Required: {selectedQuiz.passingScore}%</p>
-              </div>
-            )}
-
-            {/* Weak Topics */}
-            {weakTopics.length > 0 && (
-              <div>
-                <h3 className="quiz-weak-topics-title">Areas to Review:</h3>
-                <div className="flex flex-wrap gap-2">
-                  {weakTopics.map((topic) => (
-                    <Badge key={topic} variant="secondary">
-                      {topic}
-                    </Badge>
-                  ))}
-                </div>
               </div>
             )}
 

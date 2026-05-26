@@ -6,7 +6,6 @@ import {
   BookOpenCheck,
   FileText,
   Cpu,
-  Leaf,
   Calendar,
   Sparkles,
   ChevronRight,
@@ -25,7 +24,7 @@ import { getAuthHeaders } from '../../utils/backendClient';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
-type ChatIcon = 'ai' | 'tool' | 'doc' | 'code';
+type ChatIcon = 'ai' | 'quiz' | 'flashcards' | 'mixed' | 'doc' | 'code';
 
 interface ChatChipType {
   type: 'flashcard' | 'quiz';
@@ -123,7 +122,9 @@ const getDisplayUserText = (text: string) => {
 
 const ICON_MAP: Record<ChatIcon, { Icon: React.ElementType; colorClass: string }> = {
   ai: { Icon: MessageCircle, colorClass: 'bg-blue-500/10 text-blue-500' },
-  tool: { Icon: Leaf, colorClass: 'bg-teal-500/15 text-teal-400' },
+  quiz: { Icon: BadgeQuestionMark, colorClass: 'bg-teal-500/15 text-teal-400' },
+  flashcards: { Icon: BookOpenCheck, colorClass: 'bg-blue-500/15 text-blue-400' },
+  mixed: { Icon: Sparkles, colorClass: 'bg-purple-500/15 text-purple-400' },
   doc: { Icon: FileText, colorClass: 'bg-blue-500/15 text-blue-400' },
   code: { Icon: Cpu, colorClass: 'bg-amber-500/15 text-amber-400' },
 };
@@ -293,13 +294,15 @@ export function ChatHistoryPage({ onNavigate }: ChatHistoryPageProps = {}) {
   const resolveIcon = (thread: Record<string, unknown>, messages: ChatMessage[]): ChatIcon => {
     const iconHint = String(thread.icon ?? thread.type ?? thread.kind ?? '').toLowerCase();
     if (iconHint.includes('doc') || iconHint.includes('file') || iconHint.includes('upload')) return 'doc';
-    if (iconHint.includes('quiz') || iconHint.includes('tool')) return 'tool';
+    if (iconHint.includes('flashcard')) return 'flashcards';
+    if (iconHint.includes('quiz')) return 'quiz';
     if (iconHint.includes('code')) return 'code';
 
     const hasFlashcards = messages.some((message) => message.role === 'flashcard');
     const hasQuiz = messages.some((message) => message.role === 'quiz');
-    if (hasFlashcards && !hasQuiz) return 'doc';
-    if (hasQuiz) return 'tool';
+    if (hasFlashcards && hasQuiz) return 'mixed';
+    if (hasFlashcards) return 'flashcards';
+    if (hasQuiz) return 'quiz';
 
     return 'ai';
   };

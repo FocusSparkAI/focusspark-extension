@@ -3,7 +3,8 @@ import { AlertCircle, Camera, CameraOff, Eye, EyeOff } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '../../components/ui/button';
 import { useFocus } from '../../context/FocusContext';
-import { BACKEND_ROUTES, buildBackendUrl } from '../../config/backend';
+import { BACKEND_ROUTES, buildBackendUrl, buildBackendWsUrl } from '../../config/backend';
+import { getAccessToken, getAuthHeaders } from '../../utils/backendClient';
 
 interface FocusDetectorProps {
   variant?: 'full' | 'compact' | 'hidden';
@@ -23,7 +24,10 @@ export const FocusDetector: React.FC<FocusDetectorProps> = ({
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const detectIntervalRef = useRef<number | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
+  const websocketRef = useRef<WebSocket | null>(null);
   const analysisInFlightRef = useRef(false);
+  const fallbackToastShownRef = useRef(false);
+  const authErrorToastShownRef = useRef(false);
 
   const startWebcam = async () => {
     try {
@@ -103,8 +107,50 @@ export const FocusDetector: React.FC<FocusDetectorProps> = ({
     setFocusScore(normalizedScore ?? 30);
   };
 
+  const stopBackendDetectionLoop = () => {
+    if (detectIntervalRef.current) {
+      clearInterval(detectIntervalRef.current);
+      detectIntervalRef.current = null;
+    }
+    analysisInFlightRef.current = false;
+  };
+
+  const closeWebSocket = () => {
+    if (websocketRef.current) {
+      websocketRef.current.onopen = null;
+      websocketRef.current.onmessage = null;
+      websocketRef.current.onerror = null;
+      websocketRef.current.onclose = null;
+      websocketRef.current.close();
+      websocketRef.current = null;
+    }
+  };
+
+  const showAuthError = () => {
+    closeWebSocket();
+    stopBackendDetectionLoop();
+
+    if (streamRef.current) {
+      streamRef.current.getTracks().forEach((track) => track.stop());
+      streamRef.current = null;
+    }
+
+    setStatus('error');
+    setIsProcessing(false);
+    setIsFocused(false);
+    setFocusScore(50);
+
+    if (!authErrorToastShownRef.current) {
+      authErrorToastShownRef.current = true;
+      toast.error('Sign in required', {
+        description: 'Please sign in again to use camera-based focus detection.',
+        duration: 5000,
+      });
+    }
+  };
+
   const runBackendDetectionLoop = () => {
-    if (detectIntervalRef.current) clearInterval(detectIntervalRef.current);
+    stopBackendDetectionLoop();
 
     detectIntervalRef.current = window.setInterval(async () => {
       if (analysisInFlightRef.current) return;
@@ -114,11 +160,24 @@ export const FocusDetector: React.FC<FocusDetectorProps> = ({
 
       analysisInFlightRef.current = true;
       try {
+        const authHeaders = await getAuthHeaders();
+        if (!authHeaders.Authorization) {
+          showAuthError();
+          stopBackendDetectionLoop();
+          return;
+        }
+
         const response = await fetch(buildBackendUrl(BACKEND_ROUTES.analyze), {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: { 'Content-Type': 'application/json', ...authHeaders },
           body: JSON.stringify({ image: imageData }),
         });
+
+        if (response.status === 401 || response.status === 403) {
+          showAuthError();
+          stopBackendDetectionLoop();
+          return;
+        }
 
         if (!response.ok) {
           throw new Error(`Focus detection request failed with status ${response.status}`);
@@ -134,6 +193,82 @@ export const FocusDetector: React.FC<FocusDetectorProps> = ({
     }, 2000);
   };
 
+  const fallBackToHttpDetection = () => {
+    closeWebSocket();
+    runBackendDetectionLoop();
+
+    if (!fallbackToastShownRef.current) {
+      fallbackToastShownRef.current = true;
+      toast.info('Using backup focus detection', {
+        description: 'Live connection was unavailable, so FocusSpark switched to standard analysis.',
+        duration: 4000,
+      });
+    }
+  };
+
+  const runWebSocketDetectionLoop = async () => {
+    closeWebSocket();
+    stopBackendDetectionLoop();
+
+    const token = await getAccessToken();
+    if (!token) {
+      showAuthError();
+      return;
+    }
+
+    let socket: WebSocket;
+    try {
+      const wsUrl = new URL(buildBackendWsUrl(BACKEND_ROUTES.ws));
+      wsUrl.searchParams.set('token', token);
+      socket = new WebSocket(wsUrl.toString());
+    } catch {
+      fallBackToHttpDetection();
+      return;
+    }
+
+    websocketRef.current = socket;
+
+    socket.onopen = () => {
+      if (websocketRef.current !== socket) return;
+
+      detectIntervalRef.current = window.setInterval(() => {
+        if (socket.readyState !== WebSocket.OPEN) return;
+
+        const imageData = captureFrame();
+        if (!imageData) return;
+
+        socket.send(JSON.stringify({ image: imageData }));
+      }, 2000);
+    };
+
+    socket.onmessage = (event) => {
+      try {
+        const data = JSON.parse(event.data);
+        if (data?.error) return;
+        applyBackendResult(data ?? {});
+      } catch {
+        // Ignore malformed messages and wait for the next frame.
+      }
+    };
+
+    socket.onerror = () => {
+      if (websocketRef.current === socket) {
+        fallBackToHttpDetection();
+      }
+    };
+
+    socket.onclose = (event) => {
+      if (websocketRef.current === socket && isProcessing) {
+        if (event.code === 1008) {
+          showAuthError();
+          return;
+        }
+
+        fallBackToHttpDetection();
+      }
+    };
+  };
+
   const handleStart = async () => {
     if (!isDetectionEnabled) return;
 
@@ -143,7 +278,9 @@ export const FocusDetector: React.FC<FocusDetectorProps> = ({
     try {
       await startWebcam();
       setStatus('active');
-      runBackendDetectionLoop();
+      fallbackToastShownRef.current = false;
+      authErrorToastShownRef.current = false;
+      void runWebSocketDetectionLoop();
     } catch {
       setStatus('error');
       setIsProcessing(false);
@@ -151,11 +288,12 @@ export const FocusDetector: React.FC<FocusDetectorProps> = ({
   };
 
   const handleStop = () => {
-    if (detectIntervalRef.current) clearInterval(detectIntervalRef.current);
-    analysisInFlightRef.current = false;
+    closeWebSocket();
+    stopBackendDetectionLoop();
 
     if (streamRef.current) {
       streamRef.current.getTracks().forEach((track) => track.stop());
+      streamRef.current = null;
     }
 
     setStatus('idle');
@@ -166,8 +304,8 @@ export const FocusDetector: React.FC<FocusDetectorProps> = ({
 
   useEffect(() => {
     return () => {
-      if (detectIntervalRef.current) clearInterval(detectIntervalRef.current);
-      analysisInFlightRef.current = false;
+      closeWebSocket();
+      stopBackendDetectionLoop();
 
       if (streamRef.current) {
         streamRef.current.getTracks().forEach((track) => track.stop());

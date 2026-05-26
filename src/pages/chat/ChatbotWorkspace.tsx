@@ -20,22 +20,23 @@ import { MotivationalPopup } from '../../components/shared/MotivationalPopup';
 import { TimerButton } from '../../features/pomodoro/TimerButton';
 import { TimerDropdown } from '../../features/pomodoro/TimerDropdown';
 import { PomodoroControlPanel } from '../../features/pomodoro/PomodoroControlPanel';
-import { BACKEND_ROUTES, buildBackendUrl } from '../../config/backend';
+import { BACKEND_ROUTES, buildBackendUrl, buildBackendWsUrl } from '../../config/backend';
 import {
   chatWithAITutor,
+  type AIProvider,
   fetchFlashcardsFromChat,
   fetchQuizFromChat,
   getOrCreateTutorThreadId,
   resetTutorThread,
 } from '../../utils/aiClient';
-import { getAuthHeaders } from '../../utils/backendClient';
+import { getAccessToken, getAuthHeaders } from '../../utils/backendClient';
 import { usePomodoro } from '../../context/PomodoroContext';
 import { ChatComposer } from '../../components/chat/ChatComposer';
 import { ChatMessageList } from '../../components/chat/ChatMessageList';
 import { ChatSidePanel } from '../../components/chat/ChatSidePanel';
 import { UploadModal } from '../../components/chat/UploadModal';
 import { useChatbotWorkspace } from '../../hooks/chat/useChatbotWorkspace';
-import { AI_MODELS, createInitialMessages, type Flashcard, type Message, type QuizQuestion, type UploadedDocument } from './types/ChatTypes';
+import { AI_MODELS, createInitialMessages, type Flashcard, type Message, type QuizQuestion, type UploadedDocument } from '../../types/ChatTypes';
 
 interface ChatbotWorkspaceProps {
   onNavigate?: (page: string) => void;
@@ -152,6 +153,8 @@ export function ChatbotWorkspace({ onNavigate }: ChatbotWorkspaceProps = {}) {
   const [motivationalMessage, setMotivationalMessage] = useState('');
   const [transportMode, setTransportMode] = useState<'connecting' | 'ws' | 'http'>('connecting');
   const [focusDriftCount, setFocusDriftCount] = useState(0);
+  const [preferredChatProvider, setPreferredChatProvider] = useState<AIProvider>('openai');
+  const [preferredChatModel, setPreferredChatModel] = useState<string | null>(null);
 
   void quizMode;
   void setQuizMode;
@@ -175,7 +178,45 @@ export function ChatbotWorkspace({ onNavigate }: ChatbotWorkspaceProps = {}) {
   });
   const [distractionCount, setDistractionCount] = useState(0);
   const focusTabIdRef = useRef<number | null>(null);
-  const websocketUrl = buildBackendUrl(BACKEND_ROUTES.ws).replace(/^http/i, 'ws');
+  const websocketUrl = buildBackendWsUrl(BACKEND_ROUTES.ws);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    const loadAiDefaults = async () => {
+      try {
+        const authHeaders = await getAuthHeaders();
+        const response = await axios.get(buildBackendUrl(BACKEND_ROUTES.studySettings), {
+          headers: authHeaders,
+        });
+        if (cancelled) return;
+
+        const provider = response.data?.preferred_ai_provider;
+        const model = response.data?.preferred_ai_model;
+        if (provider === 'openai' || provider === 'gemini') {
+          setPreferredChatProvider(provider);
+          setSelectedModel(provider);
+        }
+        if (typeof model === 'string' && model.trim()) {
+          setPreferredChatModel(model.trim());
+        } else {
+          setPreferredChatModel(null);
+        }
+      } catch {
+        // Keep the built-in default if settings cannot be loaded.
+      }
+    };
+
+    void loadAiDefaults();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [setSelectedModel]);
+
+  const resolveChatModel = (provider: AIProvider) => {
+    return provider === preferredChatProvider ? preferredChatModel : null;
+  };
 
   const normalizeEmotion = (value: string): 'happy' | 'tired' | 'neutral' | 'sad' => {
     const normalized = value.trim().toLowerCase();
@@ -197,7 +238,19 @@ export function ChatbotWorkspace({ onNavigate }: ChatbotWorkspaceProps = {}) {
     });
   };
 
-  const applyDetectionResult = (incomingEmotion: string, incomingFocused: boolean) => {
+  const normalizeFocused = (value: unknown): boolean | null => {
+    if (typeof value === 'boolean') return value;
+    if (typeof value !== 'string') return null;
+
+    const normalized = value.trim().toLowerCase();
+    if (['focused', 'focus', 'true', 'yes'].includes(normalized)) return true;
+    if (['unfocused', 'distracted', 'false', 'no'].includes(normalized)) return false;
+    return null;
+  };
+
+  const applyDetectionResult = (incomingEmotion: string, incomingFocused: boolean | null) => {
+    if (incomingFocused === null) return;
+
     const mappedEmotion = normalizeEmotion(incomingEmotion || 'neutral');
     setEmotionState(mappedEmotion);
     setEmotionalState(mappedEmotion === 'happy' ? 'happy' : mappedEmotion === 'sad' ? 'sad' : mappedEmotion === 'tired' ? 'tired' : 'neutral');
@@ -240,9 +293,14 @@ export function ChatbotWorkspace({ onNavigate }: ChatbotWorkspaceProps = {}) {
     detectInFlightRef.current = true;
 
     try {
+      const authHeaders = await getAuthHeaders();
+      const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+      if (authHeaders.Authorization) {
+        headers.Authorization = authHeaders.Authorization;
+      }
       const response = await fetch(buildBackendUrl(BACKEND_ROUTES.analyze), {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers,
         body: JSON.stringify({ image: imageData }),
       });
 
@@ -251,7 +309,7 @@ export function ChatbotWorkspace({ onNavigate }: ChatbotWorkspaceProps = {}) {
       }
 
       const data = await response.json();
-      applyDetectionResult(data?.emotion || 'neutral', Boolean(data?.focused));
+      applyDetectionResult(data?.emotion || 'neutral', normalizeFocused(data?.focused));
       if (transportMode !== 'http') {
         setTransportMode('http');
       }
@@ -475,9 +533,14 @@ export function ChatbotWorkspace({ onNavigate }: ChatbotWorkspaceProps = {}) {
             // Ignore autoplay errors in extension context.
           });
 
-          setTimeout(() => {
+          if (video.videoWidth > 0 && video.videoHeight > 0) {
             cameraReadyRef.current = true;
-          }, 3000);
+          }
+          window.setTimeout(() => {
+            if (video.videoWidth > 0 && video.videoHeight > 0) {
+              cameraReadyRef.current = true;
+            }
+          }, 500);
         };
       } catch {
         showTopToast('error', 'Camera access failed. Detection unavailable.', {
@@ -500,50 +563,67 @@ export function ChatbotWorkspace({ onNavigate }: ChatbotWorkspaceProps = {}) {
     if (!isDetectionEnabled) return;
 
     setTransportMode('connecting');
-    const ws = new WebSocket(websocketUrl);
-    wsRef.current = ws;
+    let ws: WebSocket | null = null;
 
-    ws.onopen = () => {
-      setTransportMode('ws');
-      showTopToast('success', 'Socket connected', {
-        id: 'chat-socket-status',
-        duration: 2000,
-      });
-    };
+    void getAccessToken().then((token) => {
+      if (!isDetectionEnabled) return;
 
-    ws.onmessage = (event) => {
-      try {
-        const data = JSON.parse(event.data);
-        applyDetectionResult(data?.emotion || 'neutral', Boolean(data?.focused));
-      } catch {
-        // Ignore malformed payloads.
-      }
-    };
-
-    ws.onclose = () => {
-      if (wsRef.current === ws) {
-        wsRef.current = null;
-      }
-
-      if (isDetectionEnabled) {
+      if (!token) {
         setTransportMode('http');
-        showTopToast('info', 'Realtime socket unavailable. Switched to HTTP mode.', {
+        showTopToast('error', 'Please sign in again to use camera detection.', {
+          id: 'chat-camera-auth-required',
+          duration: 3000,
+        });
+        return;
+      }
+
+      const wsUrl = new URL(websocketUrl);
+      wsUrl.searchParams.set('token', token);
+      ws = new WebSocket(wsUrl.toString());
+      wsRef.current = ws;
+
+      ws.onopen = () => {
+        setTransportMode('ws');
+        showTopToast('success', 'Socket connected', {
+          id: 'chat-socket-status',
+          duration: 2000,
+        });
+      };
+
+      ws.onmessage = (event) => {
+        try {
+          const data = JSON.parse(event.data);
+          applyDetectionResult(data?.emotion || 'neutral', normalizeFocused(data?.focused));
+        } catch {
+          // Ignore malformed payloads.
+        }
+      };
+
+      ws.onclose = () => {
+        if (wsRef.current === ws) {
+          wsRef.current = null;
+        }
+
+        if (isDetectionEnabled) {
+          setTransportMode('http');
+          showTopToast('info', 'Realtime socket unavailable. Switched to HTTP mode.', {
+            id: 'chat-socket-status',
+            duration: 3000,
+          });
+        }
+      };
+
+      ws.onerror = () => {
+        setTransportMode('http');
+        showTopToast('error', 'Socket connection failed. Using HTTP fallback.', {
           id: 'chat-socket-status',
           duration: 3000,
         });
-      }
-    };
-
-    ws.onerror = () => {
-      setTransportMode('http');
-      showTopToast('error', 'Socket connection failed. Using HTTP fallback.', {
-        id: 'chat-socket-status',
-        duration: 3000,
-      });
-    };
+      };
+    });
 
     return () => {
-      if (wsRef.current === ws) {
+      if (ws && wsRef.current === ws) {
         ws.close();
         wsRef.current = null;
       }
@@ -658,7 +738,8 @@ export function ChatbotWorkspace({ onNavigate }: ChatbotWorkspaceProps = {}) {
 
       try {
         const threadProvider = activeModel;
-        const threadId = await getOrCreateTutorThreadId(threadProvider);
+        const threadModel = resolveChatModel(threadProvider);
+        const threadId = await getOrCreateTutorThreadId(threadProvider, threadModel);
         setCurrentThreadProvider(threadProvider);
         const authHeaders = await getAuthHeaders();
         const form = new FormData();
@@ -756,7 +837,8 @@ export function ChatbotWorkspace({ onNavigate }: ChatbotWorkspaceProps = {}) {
 
       // Call real AI
       const threadProvider = activeModel;
-      const response = await chatWithAITutor(userInput, conversationHistory, threadProvider);
+      const threadModel = resolveChatModel(threadProvider);
+      const response = await chatWithAITutor(userInput, conversationHistory, threadProvider, threadModel);
       if (!response.success) {
         throw new Error(response.error || 'AI request failed');
       }

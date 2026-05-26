@@ -3,7 +3,6 @@ import { Navigate, Route, Routes, useLocation, useNavigate } from 'react-router-
 import { Navigation } from '../components/layout/Navigation';
 import { ExtensionHomePage } from '../pages/home/ExtensionHomePage';
 import { SignInPage } from '../pages/auth/SignInPage';
-import { ForgotPasswordPage } from '../pages/auth/ForgotPasswordPage';
 import { StudentDashboard } from '../pages/dashboard/StudentDashboard';
 import { ChatbotWorkspace } from '../pages/chat/ChatbotWorkspace';
 import { FlashcardDeckScreen } from '../pages/flashcards/FlashcardDeckScreen';
@@ -16,13 +15,12 @@ import { Toaster } from '../components/ui/sonner';
 import { FocusProvider } from '../context/FocusContext';
 import { PomodoroProvider, usePomodoro } from '../context/PomodoroContext';
 import { clearAccessToken } from '../utils/backendClient';
+import { FRONTEND_ROUTES, buildFrontendUrl } from '../config/frontend';
 import { ProtectedRoute } from './ProtectedRoute';
 
 const PAGE_TO_PATH: Record<string, string> = {
   home: '/',
   signin: '/signin',
-  signup: '/signup',
-  'forgot-password': '/forgot-password',
   dashboard: '/dashboard',
   chatbot: '/chatbot',
   flashcards: '/flashcards',
@@ -42,7 +40,6 @@ const PATH_TO_PAGE = Object.entries(PAGE_TO_PATH).reduce<Record<string, string>>
 
 const SPECIAL_PAGES = new Set([
   'signin',
-  'forgot-password',
   'dashboard',
   'chatbot',
   'flashcards',
@@ -193,6 +190,18 @@ function AppContent() {
   }, [isPomodoroLocked]);
 
   const handleNavigate = (page: string) => {
+    if (page === 'signup' || page === 'forgot-password') {
+      const frontendRoute =
+        page === 'signup' ? FRONTEND_ROUTES.signup : FRONTEND_ROUTES.forgotPassword;
+      window.open(buildFrontendUrl(frontendRoute), '_blank', 'noopener,noreferrer');
+      return;
+    }
+
+    if (page === 'achievements') {
+      window.open(buildFrontendUrl(FRONTEND_ROUTES.achievements), '_blank', 'noopener,noreferrer');
+      return;
+    }
+
     if (page === 'quick-start') {
       const focusMinutes = readSavedPomodoroMinutes('focusspark-extension-focus-minutes', 25, 5, 120);
       const breakMinutes = readSavedPomodoroMinutes('focusspark-extension-break-minutes', 5, 1, 60);
@@ -253,10 +262,6 @@ function AppContent() {
         <Route
           path="/signup"
           element={<Navigate to="/signin" replace />}
-        />
-        <Route
-          path="/forgot-password"
-          element={<ForgotPasswordPage onNavigate={handleNavigate} />}
         />
         <Route
           path="/dashboard"

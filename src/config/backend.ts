@@ -11,6 +11,7 @@ export const BACKEND_ROUTES = {
 
   // Auth endpoints
   authLogin: '/auth/login',
+  authProfile: '/auth/profile',
 
   // Chat endpoints
   chatThreads: '/chat/threads',
@@ -36,8 +37,15 @@ export const BACKEND_ROUTES = {
   studyNotification: '/study/notifications/{notification_id}', // replace {notification_id}
   studyNotificationsReadAll: '/study/notifications/read-all',
   studyDashboardStats: '/study/stats/dashboard',
+  studySettings: '/study/settings',
 } as const;
 
 export function buildBackendUrl(path: string): string {
   return new URL(path, BACKEND_BASE_URL).toString();
+}
+
+export function buildBackendWsUrl(path: string): string {
+  const url = new URL(path, BACKEND_BASE_URL);
+  url.protocol = url.protocol === 'https:' ? 'wss:' : 'ws:';
+  return url.toString();
 }

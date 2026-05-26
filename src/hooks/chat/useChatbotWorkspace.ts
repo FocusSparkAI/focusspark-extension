@@ -6,7 +6,7 @@ import {
   type AIModelId,
   type Message,
   type UploadedDocument,
-} from '../../pages/chat/types/ChatTypes';
+} from '../../types/ChatTypes';
 
 export function useChatbotWorkspace() {
   const [messages, setMessages] = useState<Message[]>(createInitialMessages);
