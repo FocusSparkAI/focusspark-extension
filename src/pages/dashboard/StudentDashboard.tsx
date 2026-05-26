@@ -92,6 +92,8 @@ export function StudentDashboard({ onNavigate, onLogout }: StudentDashboardProps
   const [dashboardStats, setDashboardStats] = useState({
     flashcardDecks: 0,
     quizSets: 0,
+    activeGoal: null as any,
+    todayGoalStats: null as any,
     isLoading: true,
   });
   const [profileName, setProfileName] = useState('');
@@ -108,6 +110,15 @@ export function StudentDashboard({ onNavigate, onLogout }: StudentDashboardProps
   const { isDetectionEnabled } = useFocus();
   const { startSession, sessions } = usePomodoro();
   const focusStreakDays = useMemo(() => getFocusStreakDays(sessions), [sessions]);
+  const activeGoal = dashboardStats.activeGoal;
+  const activeGoalValue = activeGoal
+    ? `${Number(activeGoal.current_minutes ?? 0)}/${Number(activeGoal.target_minutes ?? 0)}m`
+    : 'No goal';
+  const activeGoalHelper = activeGoal
+    ? activeGoal.title
+    : Number(dashboardStats.todayGoalStats?.completed ?? 0) > 0
+    ? 'All goals completed today'
+    : 'Set one on the website';
 
   useEffect(() => {
     let isMounted = true;
@@ -115,9 +126,10 @@ export function StudentDashboard({ onNavigate, onLogout }: StudentDashboardProps
     const loadDashboardStats = async () => {
       try {
         const authHeaders = await getAuthHeaders();
-        const [flashcardsResponse, quizzesResponse] = await Promise.all([
+        const [flashcardsResponse, quizzesResponse, studyResponse] = await Promise.all([
           backendClient.get(BACKEND_ROUTES.flashcards, { headers: authHeaders }),
           backendClient.get(BACKEND_ROUTES.quiz, { headers: authHeaders }),
+          backendClient.get(BACKEND_ROUTES.studyDashboardStats, { headers: authHeaders }),
         ]);
 
         if (!isMounted) return;
@@ -128,6 +140,8 @@ export function StudentDashboard({ onNavigate, onLogout }: StudentDashboardProps
         setDashboardStats({
           flashcardDecks: decks.length,
           quizSets: quizzes.length,
+          activeGoal: studyResponse.data?.active_goal ?? null,
+          todayGoalStats: studyResponse.data?.today_goal_stats ?? null,
           isLoading: false,
         });
       } catch {
@@ -167,10 +181,10 @@ export function StudentDashboard({ onNavigate, onLogout }: StudentDashboardProps
 
   const overviewStats = [
     {
-      label: 'AI Tutor',
-      value: 'Ready',
-      helper: 'Ask questions while studying',
-      icon: Bot,
+      label: "Today's Goal",
+      value: dashboardStats.isLoading ? '...' : activeGoalValue,
+      helper: activeGoalHelper,
+      icon: Target,
       color: 'text-blue-500',
     },
     {
@@ -287,7 +301,7 @@ export function StudentDashboard({ onNavigate, onLogout }: StudentDashboardProps
               </div>
             </motion.section>
 
-            <section className="grid gap-4 lg:grid-cols-4">
+            <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
               {overviewStats.map((stat, index) => {
                 const Icon = stat.icon;
                 return (

@@ -1,4 +1,4 @@
-const frontendBaseUrl = import.meta.env.VITE_FRONTEND_BASE_URL ?? 'http://localhost:5173';
+const frontendBaseUrl = import.meta.env.VITE_FRONTEND_BASE_URL;
 
 export const FRONTEND_BASE_URL = frontendBaseUrl.replace(/\/+$/, '');
 
@@ -10,6 +10,7 @@ export const FRONTEND_ROUTES = {
   signup: '/signup',
   forgotPassword: '/forgot-password',
   dashboard: '/dashboard',
+  goals: '/goals',
   achievements: '/achievements',
   profile: '/profile',
   settings: '/settings',

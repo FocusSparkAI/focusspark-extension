@@ -12496,6 +12496,13 @@ html {
     box-shadow: 0 20px 25px -5px #0000001a, 0 10px 10px -5px #0000000a
 }
 
+.flashcard-back-content {
+    min-height: 100%;
+    flex-direction: column;
+    justify-content: center;
+    display: flex
+}
+
 :not(.dark) .flashcard-section-title {
     color: #6b7280;
     margin-bottom: .5rem;

@@ -1,4 +1,4 @@
-const backendBaseUrl = import.meta.env.VITE_BACKEND_BASE_URL ?? 'http://127.0.0.1:8000';
+const backendBaseUrl = import.meta.env.VITE_BACKEND_BASE_URL;
 
 export const BACKEND_BASE_URL = backendBaseUrl.replace(/\/+$/, '');
 
@@ -37,6 +37,7 @@ export const BACKEND_ROUTES = {
   studyNotification: '/study/notifications/{notification_id}', // replace {notification_id}
   studyNotificationsReadAll: '/study/notifications/read-all',
   studyDashboardStats: '/study/stats/dashboard',
+  studyGoals: '/study/goals',
   studySettings: '/study/settings',
 } as const;
 

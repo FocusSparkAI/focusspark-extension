@@ -937,9 +937,9 @@ export function QuizScreen({ onNavigate }: QuizScreenProps) {
     <div className="quiz-screen-container">
       {/* Header */}
       <div className="quiz-header">
-        <div className="quiz-header-content">
-          <div className="quiz-header-top">
-            <div className="quiz-header-left">
+        <div className="mx-auto max-w-7xl px-6 py-4">
+          <div className="mb-4 flex items-center justify-between gap-4">
+            <div className="flex min-w-0 items-center gap-4">
               <Button
                 variant="ghost"
                 size="icon"
@@ -960,7 +960,7 @@ export function QuizScreen({ onNavigate }: QuizScreenProps) {
               </div>
             </div>
 
-            <div className="quiz-header-right">
+            <div className="flex min-w-0 items-center gap-4">
               {!selectedQuiz && (
                 <Button className="quiz-create-btn" onClick={handleCreateQuiz}>
                   <Plus className="w-4 h-4 mr-2" />
@@ -985,8 +985,8 @@ export function QuizScreen({ onNavigate }: QuizScreenProps) {
 
           {/* Search Bar */}
           {!selectedQuiz && (
-            <div className="quiz-search-row">
-              <div className="quiz-search-container">
+            <div className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-3 max-sm:grid-cols-1">
+              <div className="relative min-w-0">
                 <Search className="quiz-search-icon" />
                 <Input
                   type="text"
@@ -1018,8 +1018,8 @@ export function QuizScreen({ onNavigate }: QuizScreenProps) {
 
           {/* Progress Bar - Only show when quiz is active */}
           {selectedQuiz && (
-            <div className="quiz-progress-section">
-              <div className="quiz-progress-info">
+            <div className="flex flex-col gap-2">
+              <div className="flex justify-between text-sm">
                 <span className="quiz-progress-text">
                   Question {currentQuestionIndex + 1} of {selectedQuiz.questions.length}
                 </span>
@@ -1084,7 +1084,7 @@ export function QuizScreen({ onNavigate }: QuizScreenProps) {
         </DialogContent>
       </Dialog>
 
-      <div className="quiz-content">
+      <div className="mx-auto max-w-7xl px-6 py-8">
         {!selectedQuiz ? (
           /* Quiz Selection Grid */
           <motion.div
@@ -1142,7 +1142,7 @@ export function QuizScreen({ onNavigate }: QuizScreenProps) {
                   aria-label={`Start ${quiz.title} quiz`}
                 >
                   <CardHeader className="min-h-[116px]">
-                    <div className="quiz-selection-header">
+                    <div className="flex min-w-0 items-start justify-between gap-3">
                       <CardTitle className="quiz-selection-title">{quiz.title}</CardTitle>
                       <div className="flex items-center gap-2">
                         <Badge className={getQuizSourceBadgeClassName(getQuizSourceType(quiz))}>
@@ -1156,7 +1156,7 @@ export function QuizScreen({ onNavigate }: QuizScreenProps) {
                       </div>
                     </div>
                     <p className="quiz-selection-description">{quiz.description}</p>
-                    <div className="quiz-selection-tags">
+                    <div className="flex flex-wrap gap-2">
                       {quiz.tags.map((tag) => (
                         <Badge key={tag} variant="outline" className="text-xs">
                           {tag}
@@ -1168,7 +1168,7 @@ export function QuizScreen({ onNavigate }: QuizScreenProps) {
                   <CardContent className="flex flex-1 flex-col space-y-4">
                     {/* Stats Grid */}
                     <div className="grid grid-cols-2 gap-3 text-sm">
-                      <div className="quiz-stat-item">
+                      <div className="flex items-center gap-2">
                         <Target className="w-4 h-4 quiz-stat-icon" />
                         <div>
                           <p className="quiz-stat-label">Questions</p>
@@ -1176,7 +1176,7 @@ export function QuizScreen({ onNavigate }: QuizScreenProps) {
                         </div>
                       </div>
 
-                      <div className="quiz-stat-item">
+                      <div className="flex items-center gap-2">
                         <Clock className="w-4 h-4 quiz-stat-icon" />
                         <div>
                           <p className="quiz-stat-label">Time Limit</p>
@@ -1186,7 +1186,7 @@ export function QuizScreen({ onNavigate }: QuizScreenProps) {
                         </div>
                       </div>
 
-                      <div className="quiz-stat-item">
+                      <div className="flex items-center gap-2">
                         <Trophy className="w-4 h-4 quiz-stat-icon" />
                         <div>
                           <p className="quiz-stat-label">Best Score</p>
@@ -1196,7 +1196,7 @@ export function QuizScreen({ onNavigate }: QuizScreenProps) {
                         </div>
                       </div>
 
-                      <div className="quiz-stat-item">
+                      <div className="flex items-center gap-2">
                         <RotateCcw className="w-4 h-4 quiz-stat-icon" />
                         <div>
                           <p className="quiz-stat-label">Attempts</p>
@@ -1262,7 +1262,7 @@ export function QuizScreen({ onNavigate }: QuizScreenProps) {
               {/* Question Card */}
               <Card className="quiz-question-card">
                 <CardHeader>
-                  <div className="quiz-question-header">
+                  <div className="flex items-start justify-between">
                     <CardTitle className="quiz-question-title">{currentQuestion?.question}</CardTitle>
                   </div>
                 </CardHeader>

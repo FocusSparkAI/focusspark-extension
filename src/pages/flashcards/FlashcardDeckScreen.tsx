@@ -570,9 +570,9 @@ export function FlashcardDeckScreen({ onNavigate }: FlashcardDeckScreenProps) {
     <div className="flashcard-deck-container">
       {/* Header */}
       <div className="flashcard-header">
-        <div className="flashcard-header-content">
-          <div className="flashcard-header-top">
-            <div className="flashcard-header-left">
+        <div className="mx-auto max-w-7xl px-6 py-4">
+          <div className="mb-4 flex items-center justify-between gap-4">
+            <div className="flex min-w-0 items-center gap-4">
               <Button
                 variant="ghost"
                 size="icon"
@@ -618,8 +618,8 @@ export function FlashcardDeckScreen({ onNavigate }: FlashcardDeckScreenProps) {
 
           {/* Search Bar */}
           {!selectedDeck && (
-            <div className="flashcard-search-row">
-              <div className="flashcard-search-container">
+            <div className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-3 max-sm:grid-cols-1">
+              <div className="relative min-w-0">
                 <Search className="flashcard-search-icon" />
                 <Input
                   type="text"
@@ -651,7 +651,7 @@ export function FlashcardDeckScreen({ onNavigate }: FlashcardDeckScreenProps) {
         </div>
       </div>
 
-      <div className="flashcard-content">
+      <div className="mx-auto max-w-7xl px-6 py-8">
         {!selectedDeck ? (
           /* Deck Grid View */
           <motion.div
@@ -681,7 +681,7 @@ export function FlashcardDeckScreen({ onNavigate }: FlashcardDeckScreenProps) {
                   aria-label={`Open ${deck.title} flashcard deck`}
                 >
                   <CardHeader>
-                    <div className="flashcard-deck-header">
+                    <div className="mb-2 flex items-start justify-between gap-3">
                       <CardTitle className="flashcard-deck-title">
                         {deck.title}
                       </CardTitle>
@@ -826,7 +826,7 @@ export function FlashcardDeckScreen({ onNavigate }: FlashcardDeckScreenProps) {
           /* Card Review View */
           <div className="max-w-4xl mx-auto space-y-6">
             {/* Controls Header */}
-            <div className="flex items-center justify-between">
+            <div className="flex items-center justify-between gap-4">
               <div className="flex items-center gap-4">
                 <Button
                   variant="outline"
@@ -921,7 +921,7 @@ export function FlashcardDeckScreen({ onNavigate }: FlashcardDeckScreenProps) {
                       transform: 'rotateY(180deg)',
                     }}
                   >
-                    <div className="space-y-4">
+                    <div className="flashcard-back-content space-y-4">
                       <div>
                         <h3 className="flashcard-section-title">Answer:</h3>
                         <p className="flashcard-answer-text">{currentCard.back}</p>
@@ -987,8 +987,10 @@ export function FlashcardDeckScreen({ onNavigate }: FlashcardDeckScreenProps) {
                     <p className="flashcard-metadata-value">{currentCard.correctCount}</p>
                   </div>
                   <div>
-                    <p className="flashcard-metadata-label">Review Interval</p>
-                    <p className="flashcard-metadata-text">{currentCard.reviewInterval} days</p>
+                    <p className="flashcard-metadata-label">Created</p>
+                    <p className="flashcard-metadata-date">
+                      {selectedDeck.createdAt?.toLocaleDateString() ?? 'Unknown'}
+                    </p>
                   </div>
                   <div>
                     <p className="flashcard-metadata-label">Last Reviewed</p>
