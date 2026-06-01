@@ -93,6 +93,7 @@ export function StudentDashboard({ onNavigate, onLogout }: StudentDashboardProps
     flashcardDecks: 0,
     quizSets: 0,
     activeGoal: null as Record<string, unknown> | null,
+    todayGoals: [] as Record<string, unknown>[],
     todayGoalStats: null as Record<string, unknown> | null,
     isLoading: true,
   });
@@ -111,13 +112,18 @@ export function StudentDashboard({ onNavigate, onLogout }: StudentDashboardProps
   const { startSession, sessions } = usePomodoro();
   const focusStreakDays = useMemo(() => getFocusStreakDays(sessions), [sessions]);
   const activeGoal = dashboardStats.activeGoal;
+  const todayGoalsCount = dashboardStats.todayGoals.length;
+  const completedGoals = Number(dashboardStats.todayGoalStats?.completed ?? 0);
+  const totalGoals = Number(dashboardStats.todayGoalStats?.total ?? todayGoalsCount);
   const activeGoalValue = activeGoal
-    ? `${Number(activeGoal.current_minutes ?? 0)}/${Number(activeGoal.target_minutes ?? 0)}m`
+    ? String(activeGoal.title ?? 'Active goal')
+    : totalGoals > 0
+    ? 'All done'
     : 'No goal';
   const activeGoalHelper = activeGoal
-    ? String(activeGoal.title ?? '')
-    : Number(dashboardStats.todayGoalStats?.completed ?? 0) > 0
-    ? 'All goals completed today'
+    ? `${Number(activeGoal.current_minutes ?? 0)}/${Number(activeGoal.target_minutes ?? 0)} min`
+    : totalGoals > 0
+    ? `${completedGoals}/${totalGoals} goals completed today`
     : 'Set one on the website';
 
   useEffect(() => {
@@ -141,6 +147,7 @@ export function StudentDashboard({ onNavigate, onLogout }: StudentDashboardProps
           flashcardDecks: decks.length,
           quizSets: quizzes.length,
           activeGoal: studyResponse.data?.active_goal ?? null,
+          todayGoals: Array.isArray(studyResponse.data?.today_goals) ? studyResponse.data.today_goals : [],
           todayGoalStats: studyResponse.data?.today_goal_stats ?? null,
           isLoading: false,
         });

@@ -251,6 +251,9 @@ export function ChatbotWorkspace({ onNavigate }: ChatbotWorkspaceProps = {}) {
 
         const provider = response.data?.preferred_ai_provider;
         const model = response.data?.preferred_ai_model;
+        if (typeof response.data?.focus_alerts_enabled === 'boolean') {
+          setIsDetectionEnabled(response.data.focus_alerts_enabled);
+        }
         if (provider === 'openai' || provider === 'gemini') {
           setPreferredChatProvider(provider);
           setSelectedModel(provider);
@@ -270,7 +273,7 @@ export function ChatbotWorkspace({ onNavigate }: ChatbotWorkspaceProps = {}) {
     return () => {
       cancelled = true;
     };
-  }, [setSelectedModel]);
+  }, [setIsDetectionEnabled, setSelectedModel]);
 
   const resolveChatModel = (provider: AIProvider) => {
     return provider === preferredChatProvider ? preferredChatModel : null;
