@@ -1,7 +1,7 @@
 import { motion, AnimatePresence } from 'motion/react';
 import { Play, Pause, X, CheckCircle, SkipForward } from 'lucide-react';
 import { Button } from '../../components/ui/button';
-import { usePomodoro } from '../../context/PomodoroContext';
+import { usePomodoro } from '../../hooks/usePomodoro';
 
 interface PomodoroControlPanelProps {
   isOpen: boolean;

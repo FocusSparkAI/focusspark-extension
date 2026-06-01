@@ -4,7 +4,6 @@ import {
   Camera,
   Check,
   Download,
-  Eye,
   FileText,
   Layers,
   ListChecks,
@@ -17,10 +16,17 @@ import { Button } from '../ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '../ui/card';
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from '../ui/sheet';
 import type { UploadedDocument } from '../../types/ChatTypes';
+import { formatUserDate } from '../../utils/timezone';
 
 interface FlashcardStats {
   total: number;
   known: number;
+}
+
+interface QuizStats {
+  total: number;
+  answered: number;
+  correct: number;
 }
 
 interface ChatSidePanelProps {
@@ -28,8 +34,10 @@ interface ChatSidePanelProps {
   onOpenChange: (open: boolean) => void;
   uploadedDocs: UploadedDocument[];
   flashcardStats: FlashcardStats;
+  quizStats: QuizStats;
   cardsToReview: number;
   focusScore: number;
+  isFocusTrackingEnabled: boolean;
   isStrictMode: boolean;
   distractionCount: number;
   focusDriftCount: number;
@@ -38,58 +46,6 @@ interface ChatSidePanelProps {
   onCreateQuizFromChat: () => void;
   onExportDeck: () => void;
   onShareDeck: () => void;
-}
-
-function FocusMeter({ focusScore, gradientId }: { focusScore: number; gradientId: string }) {
-  return (
-    <Card>
-      <CardHeader>
-        <CardTitle className="text-sm flex items-center gap-2">
-          <Eye className="w-4 h-4 text-teal-400" />
-          Focus Meter
-        </CardTitle>
-      </CardHeader>
-      <CardContent>
-        <div className="relative w-32 h-32 mx-auto">
-          <svg className="w-full h-full -rotate-90">
-            <circle
-              cx="64"
-              cy="64"
-              r="56"
-              stroke="currentColor"
-              strokeWidth="8"
-              fill="none"
-              className="text-muted"
-            />
-            <motion.circle
-              cx="64"
-              cy="64"
-              r="56"
-              stroke={`url(#${gradientId})`}
-              strokeWidth="8"
-              fill="none"
-              strokeDasharray={`${2 * Math.PI * 56}`}
-              strokeDashoffset={`${2 * Math.PI * 56 * (1 - focusScore / 100)}`}
-              strokeLinecap="round"
-              initial={{ strokeDashoffset: 2 * Math.PI * 56 }}
-              animate={{ strokeDashoffset: 2 * Math.PI * 56 * (1 - focusScore / 100) }}
-              transition={{ duration: 1 }}
-            />
-            <defs>
-              <linearGradient id={gradientId} x1="0%" y1="0%" x2="100%" y2="100%">
-                <stop offset="0%" stopColor="#3b82f6" />
-                <stop offset="100%" stopColor="#8b5cf6" />
-              </linearGradient>
-            </defs>
-          </svg>
-          <div className="absolute inset-0 flex flex-col items-center justify-center">
-            <p className="text-3xl gradient-text">{focusScore}%</p>
-            <p className="text-xs text-secondary">Attention</p>
-          </div>
-        </div>
-      </CardContent>
-    </Card>
-  );
 }
 
 function UploadedDocuments({ uploadedDocs }: { uploadedDocs: UploadedDocument[] }) {
@@ -118,7 +74,7 @@ function UploadedDocuments({ uploadedDocs }: { uploadedDocs: UploadedDocument[] 
                   {doc.type === 'image' && <Camera className="w-4 h-4 text-cyan-400" />}
                   <div className="flex-1 min-w-0">
                     <p className="text-sm truncate">{doc.name}</p>
-                    <p className="text-xs text-secondary">{doc.uploadDate.toLocaleDateString()}</p>
+                    <p className="text-xs text-secondary">{formatUserDate(doc.uploadDate)}</p>
                   </div>
                   {doc.processed && <Check className="w-4 h-4 text-green-400 flex-shrink-0" />}
                 </div>
@@ -228,9 +184,11 @@ function QuickActions({
 
 function SessionSummary({
   flashcardStats,
+  quizStats,
   cardsToReview,
   focusScore,
-}: Pick<ChatSidePanelProps, 'flashcardStats' | 'cardsToReview' | 'focusScore'>) {
+  isFocusTrackingEnabled,
+}: Pick<ChatSidePanelProps, 'flashcardStats' | 'quizStats' | 'cardsToReview' | 'focusScore' | 'isFocusTrackingEnabled'>) {
   return (
     <Card>
       <CardHeader>
@@ -250,8 +208,22 @@ function SessionSummary({
           <span className="text-yellow-400">{cardsToReview}</span>
         </div>
         <div className="flex justify-between text-sm">
-          <span className="text-secondary">Focus Score:</span>
-          <span className="gradient-text">{focusScore}%</span>
+          <span className="text-secondary">Quiz Questions:</span>
+          <span>{quizStats.total}</span>
+        </div>
+        <div className="flex justify-between text-sm">
+          <span className="text-secondary">Answered:</span>
+          <span className="text-blue-400">{quizStats.answered}</span>
+        </div>
+        <div className="flex justify-between text-sm">
+          <span className="text-secondary">Correct:</span>
+          <span className="text-green-400">{quizStats.correct}</span>
+        </div>
+        <div className="flex justify-between text-sm">
+          <span className="text-secondary">Current Focus:</span>
+          <span className={isFocusTrackingEnabled ? 'gradient-text' : 'text-secondary'}>
+            {isFocusTrackingEnabled ? `${focusScore}%` : 'Not tracking'}
+          </span>
         </div>
       </CardContent>
     </Card>
@@ -263,8 +235,10 @@ export function ChatSidePanel({
   onOpenChange,
   uploadedDocs,
   flashcardStats,
+  quizStats,
   cardsToReview,
   focusScore,
+  isFocusTrackingEnabled,
   isStrictMode,
   distractionCount,
   focusDriftCount,
@@ -302,7 +276,6 @@ export function ChatSidePanel({
               </Button>
             </div>
 
-            <FocusMeter focusScore={focusScore} gradientId="gradient" />
             <UploadedDocuments uploadedDocs={uploadedDocs} />
             <QuickActions
               includeDeckActions
@@ -311,7 +284,13 @@ export function ChatSidePanel({
               onExportDeck={onExportDeck}
               onShareDeck={onShareDeck}
             />
-            <SessionSummary flashcardStats={flashcardStats} cardsToReview={cardsToReview} focusScore={focusScore} />
+            <SessionSummary
+              flashcardStats={flashcardStats}
+              quizStats={quizStats}
+              cardsToReview={cardsToReview}
+              focusScore={focusScore}
+              isFocusTrackingEnabled={isFocusTrackingEnabled}
+            />
           </motion.div>
         )}
       </AnimatePresence>
@@ -326,7 +305,6 @@ export function ChatSidePanel({
           </SheetHeader>
 
           <div className="mt-6 space-y-6">
-            <FocusMeter focusScore={focusScore} gradientId="gradient-mobile" />
             <StrictModeCard
               isStrictMode={isStrictMode}
               distractionCount={distractionCount}
@@ -340,7 +318,13 @@ export function ChatSidePanel({
               onExportDeck={onExportDeck}
               onShareDeck={onShareDeck}
             />
-            <SessionSummary flashcardStats={flashcardStats} cardsToReview={cardsToReview} focusScore={focusScore} />
+            <SessionSummary
+              flashcardStats={flashcardStats}
+              quizStats={quizStats}
+              cardsToReview={cardsToReview}
+              focusScore={focusScore}
+              isFocusTrackingEnabled={isFocusTrackingEnabled}
+            />
 
             <div className="text-xs text-secondary text-center pt-4">
               Documents: {uploadedDocs.length}

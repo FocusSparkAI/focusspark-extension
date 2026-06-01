@@ -8,7 +8,7 @@ export async function getAccessToken(): Promise<string | null> {
   try {
     const token = localStorage.getItem(TOKEN_KEY);
     return token && token.length > 0 ? token : null;
-  } catch (e) {
+  } catch {
     return null;
   }
 }
@@ -16,7 +16,7 @@ export async function getAccessToken(): Promise<string | null> {
 export async function setAccessToken(token: string): Promise<void> {
   try {
     localStorage.setItem(TOKEN_KEY, token);
-  } catch (e) {
+  } catch {
     // ignore
   }
 }
@@ -24,7 +24,7 @@ export async function setAccessToken(token: string): Promise<void> {
 export async function clearAccessToken(): Promise<void> {
   try {
     localStorage.removeItem(TOKEN_KEY);
-  } catch (e) {
+  } catch {
     // ignore
   }
 }
@@ -50,7 +50,7 @@ api.interceptors.request.use(
       if (token) {
         config.headers.Authorization = `Bearer ${token}`;
       }
-    } catch (e) {
+    } catch {
       // ignore storage errors and continue without token
     }
     return config;
@@ -69,7 +69,7 @@ axios.interceptors.request.use(
       if (token) {
         config.headers.Authorization = `Bearer ${token}`;
       }
-    } catch (e) {
+    } catch {
       // ignore
     }
     return config;

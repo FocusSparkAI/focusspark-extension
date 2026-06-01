@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect } from 'react';
+import { useCallback, useState, useRef, useEffect } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import {
   Camera,
@@ -13,7 +13,7 @@ import { Badge } from '../../components/ui/badge';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '../../components/ui/dialog';
 import { toast, type ExternalToast } from 'sonner';
 import axios from 'axios';
-import { useFocus } from '../../context/FocusContext';
+import { useFocus } from '../../hooks/useFocus';
 import { DynamicAttentionBar } from '../../features/focus/DynamicAttentionBar';
 import { EmotionalFeedbackPopup } from '../../features/focus/EmotionalFeedbackPopup';
 import { MotivationalPopup } from '../../components/shared/MotivationalPopup';
@@ -30,20 +30,76 @@ import {
   resetTutorThread,
 } from '../../utils/aiClient';
 import { getAccessToken, getAuthHeaders } from '../../utils/backendClient';
-import { usePomodoro } from '../../context/PomodoroContext';
+import { usePomodoro } from '../../hooks/usePomodoro';
 import { ChatComposer } from '../../components/chat/ChatComposer';
 import { ChatMessageList } from '../../components/chat/ChatMessageList';
 import { ChatSidePanel } from '../../components/chat/ChatSidePanel';
 import { UploadModal } from '../../components/chat/UploadModal';
 import { useChatbotWorkspace } from '../../hooks/chat/useChatbotWorkspace';
-import { AI_MODELS, createInitialMessages, type Flashcard, type Message, type QuizQuestion, type UploadedDocument } from '../../types/ChatTypes';
+import {
+  AI_MODELS,
+  CHAT_FLASHCARD_PROGRESS_KEY,
+  CHAT_QUIZ_PROGRESS_KEY,
+  createInitialMessages,
+  type Flashcard,
+  type Message,
+  type QuizQuestion,
+  type UploadedDocument,
+} from '../../types/ChatTypes';
 
 interface ChatbotWorkspaceProps {
   onNavigate?: (page: string) => void;
 }
 
+type ChromeWorkspaceApi = {
+  runtime?: {
+    onMessage?: {
+      addListener: (listener: (message: unknown) => void) => void;
+      removeListener?: (listener: (message: unknown) => void) => void;
+    };
+    sendMessage?: (message: unknown, callback?: () => void) => void;
+  };
+  tabs?: {
+    getCurrent?: (callback: (tab?: { id?: number }) => void) => void;
+  };
+};
+
+const createRuntimeId = () => `runtime-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+const createRuntimeDate = () => new Date();
+
+const readStoredRecord = (key: string): Record<string, unknown> => {
+  try {
+    const raw = localStorage.getItem(key);
+    if (!raw) return {};
+    const parsed = JSON.parse(raw);
+    return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed as Record<string, unknown> : {};
+  } catch {
+    return {};
+  }
+};
+
+const getArtifactNumber = (payload: Record<string, unknown>) => {
+  const value = payload.id ?? payload.quiz_id ?? payload.quizId ?? payload.deck_id ?? payload.deckId ?? payload.artifact_id ?? payload.artifactId;
+  const numericValue = Number(value);
+  return Number.isFinite(numericValue) ? numericValue : undefined;
+};
+
+const getArtifactTitle = (payload: Record<string, unknown>, fallback: string) => {
+  const value = payload.title ?? payload.name ?? payload.topic ?? payload.subject;
+  return typeof value === 'string' && value.trim() ? value.trim() : fallback;
+};
+
+const getProgressKeys = (message: Pick<Message, 'artifactId' | 'artifactTitle' | 'artifactTopic' | 'content'>) => {
+  return [
+    message.artifactId ? `id:${message.artifactId}` : '',
+    message.artifactTitle ? `title:${message.artifactTitle.trim().toLowerCase()}` : '',
+    message.artifactTopic ? `title:${message.artifactTopic.trim().toLowerCase()}` : '',
+    message.content ? `title:${message.content.trim().toLowerCase()}` : '',
+  ].filter(Boolean);
+};
+
 export function ChatbotWorkspace({ onNavigate }: ChatbotWorkspaceProps = {}) {
-  const chromeApi = (globalThis as typeof globalThis & { chrome?: any }).chrome;
+  const chromeApi = (globalThis as typeof globalThis & { chrome?: ChromeWorkspaceApi }).chrome;
   const { setIsFocused, isDetectionEnabled, setIsDetectionEnabled, focusScore: contextFocusScore, setFocusScore: setContextFocusScore, setEmotionalState } = useFocus();
   const { phase } = usePomodoro();
   const {
@@ -64,7 +120,6 @@ export function ChatbotWorkspace({ onNavigate }: ChatbotWorkspaceProps = {}) {
     setUploadedDocs,
     isProcessing,
     setIsProcessing,
-    uploadProgress,
     setUploadProgress,
     currentFlashcardIndex,
     setCurrentFlashcardIndex,
@@ -92,8 +147,9 @@ export function ChatbotWorkspace({ onNavigate }: ChatbotWorkspaceProps = {}) {
   // Pomodoro Timer States
   const [timerDropdownOpen, setTimerDropdownOpen] = useState(false);
   const [timerControlPanelOpen, setTimerControlPanelOpen] = useState(false);
+  const showWorkspaceGuide = false;
 
-  const showTopToast = (
+  const showTopToast = useCallback((
     kind: 'success' | 'info' | 'warning' | 'error',
     message: string,
     options: ExternalToast = {},
@@ -102,9 +158,9 @@ export function ChatbotWorkspace({ onNavigate }: ChatbotWorkspaceProps = {}) {
       position: 'top-right',
       ...options,
     });
-  };
+  }, []);
 
-  const showBottomToast = (
+  const showBottomToast = useCallback((
     kind: 'success' | 'info' | 'warning' | 'error',
     message: string,
     options: ExternalToast = {},
@@ -113,15 +169,6 @@ export function ChatbotWorkspace({ onNavigate }: ChatbotWorkspaceProps = {}) {
       position: 'bottom-right',
       ...options,
     });
-  };
-
-  useEffect(() => {
-    resetTutorThread();
-    setEmotionState('neutral');
-    setEmotionalState('neutral');
-    setFocusState('idle');
-    setIsFocused(false);
-    setContextFocusScore(50);
   }, []);
 
   const startNewThread = () => {
@@ -162,6 +209,17 @@ export function ChatbotWorkspace({ onNavigate }: ChatbotWorkspaceProps = {}) {
   void setCurrentQuizIndex;
   void quizComplete;
   void setQuizComplete;
+
+  useEffect(() => {
+    resetTutorThread();
+    void Promise.resolve().then(() => {
+      setEmotionState('neutral');
+      setEmotionalState('neutral');
+      setFocusState('idle');
+      setIsFocused(false);
+      setContextFocusScore(50);
+    });
+  }, [setContextFocusScore, setEmotionalState, setIsFocused]);
 
   const chatEndRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -226,7 +284,7 @@ export function ChatbotWorkspace({ onNavigate }: ChatbotWorkspaceProps = {}) {
     return 'neutral';
   };
 
-  const notifyDistracted = () => {
+  const notifyDistracted = useCallback(() => {
     const now = Date.now();
     if (now - warnCooldownRef.current < 5000) return;
 
@@ -236,7 +294,7 @@ export function ChatbotWorkspace({ onNavigate }: ChatbotWorkspaceProps = {}) {
       id: 'chat-focus-distracted',
       duration: 3000,
     });
-  };
+  }, [showTopToast]);
 
   const normalizeFocused = (value: unknown): boolean | null => {
     if (typeof value === 'boolean') return value;
@@ -248,7 +306,7 @@ export function ChatbotWorkspace({ onNavigate }: ChatbotWorkspaceProps = {}) {
     return null;
   };
 
-  const applyDetectionResult = (incomingEmotion: string, incomingFocused: boolean | null) => {
+  const applyDetectionResult = useCallback((incomingEmotion: string, incomingFocused: boolean | null) => {
     if (incomingFocused === null) return;
 
     const mappedEmotion = normalizeEmotion(incomingEmotion || 'neutral');
@@ -267,7 +325,7 @@ export function ChatbotWorkspace({ onNavigate }: ChatbotWorkspaceProps = {}) {
     }
 
     prevFocusedRef.current = incomingFocused;
-  };
+  }, [notifyDistracted, setContextFocusScore, setEmotionalState, setIsFocused]);
 
   const captureFrame = () => {
     const video = videoRef.current;
@@ -288,7 +346,7 @@ export function ChatbotWorkspace({ onNavigate }: ChatbotWorkspaceProps = {}) {
     }
   };
 
-  const runHttpDetection = async (imageData: string) => {
+  const runHttpDetection = useCallback(async (imageData: string) => {
     if (detectInFlightRef.current) return;
     detectInFlightRef.current = true;
 
@@ -318,9 +376,9 @@ export function ChatbotWorkspace({ onNavigate }: ChatbotWorkspaceProps = {}) {
     } finally {
       detectInFlightRef.current = false;
     }
-  };
+  }, [applyDetectionResult, transportMode]);
 
-  const stopCameraStream = () => {
+  const stopCameraStream = useCallback(() => {
     cameraReadyRef.current = false;
 
     if (wsRef.current) {
@@ -337,9 +395,9 @@ export function ChatbotWorkspace({ onNavigate }: ChatbotWorkspaceProps = {}) {
     if (video) {
       video.srcObject = null;
     }
-  };
+  }, []);
 
-  const syncStrictModeToBackground = (enabled: boolean) => {
+  const syncStrictModeToBackground = useCallback((enabled: boolean) => {
     if (!chromeApi?.runtime?.sendMessage) return;
 
     const payload = {
@@ -360,7 +418,7 @@ export function ChatbotWorkspace({ onNavigate }: ChatbotWorkspaceProps = {}) {
         // Backward-compatible message shape used by temporary frontend flow.
       },
     );
-  };
+  }, [chromeApi?.runtime]);
 
   const handleToggleStrictMode = () => {
     const nextMode = !isStrictMode;
@@ -386,25 +444,26 @@ export function ChatbotWorkspace({ onNavigate }: ChatbotWorkspaceProps = {}) {
   useEffect(() => {
     if (!chromeApi?.tabs?.getCurrent) return;
 
-    chromeApi.tabs.getCurrent((tab: { id?: number }) => {
+    chromeApi.tabs.getCurrent((tab?: { id?: number }) => {
       if (typeof tab?.id === 'number') {
         focusTabIdRef.current = tab.id;
         // Always sync on mount so background does not keep stale strict state.
         syncStrictModeToBackground(isStrictMode);
       }
     });
-  }, []);
+  }, [chromeApi?.tabs, isStrictMode, syncStrictModeToBackground]);
 
   useEffect(() => {
     if (!chromeApi?.runtime?.onMessage) return;
 
-    const listener = (message: any) => {
+    const listener = (message: unknown) => {
       if (!message || typeof message !== 'object') return;
+      const runtimeMessage = message as { type?: string; count?: number };
 
-      if (message.type === 'DISTRACTION_DETECTED') {
+      if (runtimeMessage.type === 'DISTRACTION_DETECTED') {
         if (!isStrictMode) return;
 
-        const nextCount = Number(message.count || 1);
+        const nextCount = Number(runtimeMessage.count || 1);
         setDistractionCount(nextCount);
 
         showTopToast('warning', 'Tab changed detected. Please return to your study tab.', {
@@ -420,11 +479,11 @@ export function ChatbotWorkspace({ onNavigate }: ChatbotWorkspaceProps = {}) {
         }
       }
 
-      if (message.type === 'DISTRACTION_TAB_CLOSED') {
+      if (runtimeMessage.type === 'DISTRACTION_TAB_CLOSED') {
         if (!isStrictMode) return;
       }
 
-      if (message.type === 'STRICT_MODE_FORCED_OFF') {
+      if (runtimeMessage.type === 'STRICT_MODE_FORCED_OFF') {
         setIsStrictMode(false);
         localStorage.setItem('focusspark-strict-mode', 'false');
         showTopToast('info', 'Strict Mode was disabled because the focus tab was closed.', {
@@ -440,7 +499,7 @@ export function ChatbotWorkspace({ onNavigate }: ChatbotWorkspaceProps = {}) {
         chromeApi.runtime.onMessage.removeListener(listener);
       }
     };
-  }, [isStrictMode]);
+  }, [chromeApi?.runtime?.onMessage, isStrictMode, showTopToast]);
 
   useEffect(() => {
     const onVisibilityChange = () => {
@@ -462,18 +521,80 @@ export function ChatbotWorkspace({ onNavigate }: ChatbotWorkspaceProps = {}) {
 
     document.addEventListener('visibilitychange', onVisibilityChange);
     return () => document.removeEventListener('visibilitychange', onVisibilityChange);
-  }, [isStrictMode]);
+  }, [isStrictMode, showTopToast]);
   // Hide welcome animation after 2 seconds
   useEffect(() => {
     const timer = setTimeout(() => {
       setShowWelcome(false);
     }, 2000);
     return () => clearTimeout(timer);
-  }, []);
+  }, [setShowWelcome]);
 
   // Auto-scroll to bottom on new messages
   useEffect(() => {
     chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+  }, [messages]);
+
+  useEffect(() => {
+    const records = { ...readStoredRecord(CHAT_QUIZ_PROGRESS_KEY) };
+    let changed = false;
+
+    messages.forEach((message) => {
+      if (message.type !== 'quiz' || !message.quizData?.length) return;
+
+      const answered = message.quizData.filter((question) => typeof quizAnswers[question.id] === 'number');
+      if (answered.length === 0) return;
+
+      const correct = answered.filter((question) => quizAnswers[question.id] === question.correctAnswer).length;
+      const score = Math.round((correct / message.quizData.length) * 100);
+      const record = {
+        totalAttempts: 1,
+        answered: answered.length,
+        correct,
+        bestScore: score,
+        averageScore: score,
+        lastAttempted: new Date().toISOString(),
+      };
+
+      getProgressKeys(message).forEach((key) => {
+        records[key] = record;
+        changed = true;
+      });
+    });
+
+    if (changed) {
+      localStorage.setItem(CHAT_QUIZ_PROGRESS_KEY, JSON.stringify(records));
+    }
+  }, [messages, quizAnswers]);
+
+  useEffect(() => {
+    const records = { ...readStoredRecord(CHAT_FLASHCARD_PROGRESS_KEY) };
+    let changed = false;
+
+    messages.forEach((message) => {
+      if (message.type !== 'flashcard' || !message.flashcards?.length) return;
+
+      const reviewed = message.flashcards.filter((card) => card.known);
+      if (reviewed.length === 0) return;
+
+      const progress = Math.round((reviewed.length / message.flashcards.length) * 100);
+      const record = {
+        progress,
+        accuracy: 100,
+        reviewCount: reviewed.length,
+        knownCardIds: reviewed.map((card) => card.id),
+        lastReviewed: new Date().toISOString(),
+      };
+
+      getProgressKeys(message).forEach((key) => {
+        records[key] = record;
+        changed = true;
+      });
+    });
+
+    if (changed) {
+      localStorage.setItem(CHAT_FLASHCARD_PROGRESS_KEY, JSON.stringify(records));
+    }
   }, [messages]);
 
   // Emotional Feedback Popup - show at camera-off start, then periodically.
@@ -504,13 +625,13 @@ export function ChatbotWorkspace({ onNavigate }: ChatbotWorkspaceProps = {}) {
         if (repeatTimer) window.clearTimeout(repeatTimer);
       };
     }
-  }, [isDetectionEnabled]);
+  }, [isDetectionEnabled, setShowEmotionalFeedback]);
 
   // Start or stop camera when detection mode changes.
   useEffect(() => {
     if (!isDetectionEnabled) {
       stopCameraStream();
-      setTransportMode('connecting');
+      void Promise.resolve().then(() => setTransportMode('connecting'));
       return;
     }
 
@@ -556,13 +677,13 @@ export function ChatbotWorkspace({ onNavigate }: ChatbotWorkspaceProps = {}) {
       cancelled = true;
       stopCameraStream();
     };
-  }, [isDetectionEnabled]);
+  }, [isDetectionEnabled, showTopToast, stopCameraStream]);
 
   // Prefer WebSocket transport and fall back to HTTP if socket fails.
   useEffect(() => {
     if (!isDetectionEnabled) return;
 
-    setTransportMode('connecting');
+    void Promise.resolve().then(() => setTransportMode('connecting'));
     let ws: WebSocket | null = null;
 
     void getAccessToken().then((token) => {
@@ -628,7 +749,7 @@ export function ChatbotWorkspace({ onNavigate }: ChatbotWorkspaceProps = {}) {
         wsRef.current = null;
       }
     };
-  }, [isDetectionEnabled, websocketUrl]);
+  }, [applyDetectionResult, isDetectionEnabled, showTopToast, websocketUrl]);
 
   // Send camera frames periodically through WebSocket or HTTP fallback.
   useEffect(() => {
@@ -647,17 +768,19 @@ export function ChatbotWorkspace({ onNavigate }: ChatbotWorkspaceProps = {}) {
     }, 1000);
 
     return () => window.clearInterval(interval);
-  }, [isDetectionEnabled, transportMode]);
+  }, [isDetectionEnabled, runHttpDetection]);
 
   // Reset focus state when detection is disabled
   useEffect(() => {
     if (!isDetectionEnabled) {
       // When detection is disabled, reset the focused state
-      setIsFocused(false);
-      setContextFocusScore(50);
-      setFocusState('idle');
-      setEmotionState('neutral');
-      setEmotionalState('neutral');
+      void Promise.resolve().then(() => {
+        setIsFocused(false);
+        setContextFocusScore(50);
+        setFocusState('idle');
+        setEmotionState('neutral');
+        setEmotionalState('neutral');
+      });
     }
   }, [isDetectionEnabled, setContextFocusScore, setEmotionalState, setIsFocused]);
 
@@ -701,7 +824,7 @@ export function ChatbotWorkspace({ onNavigate }: ChatbotWorkspaceProps = {}) {
 
     window.addEventListener('keydown', handleKeyPress);
     return () => window.removeEventListener('keydown', handleKeyPress);
-  }, []);
+  }, [setUploadModalOpen]);
 
   const handleSendMessage = async () => {
     const trimmedInput = inputValue.trim();
@@ -713,11 +836,11 @@ export function ChatbotWorkspace({ onNavigate }: ChatbotWorkspaceProps = {}) {
       const userInput = trimmedInput || `Uploaded file: ${file.name}`;
 
       const userMessage: Message = {
-        id: Date.now().toString(),
+        id: createRuntimeId(),
         type: 'user',
         content: trimmedInput,
         attachmentName: file.name,
-        timestamp: new Date(),
+        timestamp: createRuntimeDate(),
       };
 
       setMessages((prev) => [...prev, userMessage]);
@@ -755,10 +878,10 @@ export function ChatbotWorkspace({ onNavigate }: ChatbotWorkspaceProps = {}) {
         });
 
         const newDoc: UploadedDocument = {
-          id: Date.now().toString(),
+          id: createRuntimeId(),
           name: file.name,
           type: extension === 'pdf' ? 'pdf' : extension === 'ppt' || extension === 'pptx' ? 'ppt' : extension === 'doc' || extension === 'docx' ? 'Word' : 'text',
-          uploadDate: new Date(),
+          uploadDate: createRuntimeDate(),
           processed: true,
         };
 
@@ -767,12 +890,12 @@ export function ChatbotWorkspace({ onNavigate }: ChatbotWorkspaceProps = {}) {
         const responseText = response.data?.response;
         const messageId = response.data?.message_id;
         const aiMessage: Message = {
-          id: Date.now().toString(),
+          id: createRuntimeId(),
           type: 'ai',
           content: typeof responseText === 'string' && responseText.trim()
             ? responseText
             : `Document "${file.name}" processed successfully!`,
-          timestamp: new Date(),
+          timestamp: createRuntimeDate(),
           attachmentName: file.name,
           backendMessageId: typeof messageId === 'number' ? messageId : undefined,
         };
@@ -802,10 +925,10 @@ export function ChatbotWorkspace({ onNavigate }: ChatbotWorkspaceProps = {}) {
     }
 
     const userMessage: Message = {
-      id: Date.now().toString(),
+      id: createRuntimeId(),
       type: 'user',
       content: trimmedInput,
-      timestamp: new Date(),
+      timestamp: createRuntimeDate(),
     };
 
     const userInput = trimmedInput;
@@ -824,10 +947,10 @@ export function ChatbotWorkspace({ onNavigate }: ChatbotWorkspaceProps = {}) {
 
       if (simpleReply) {
         const greetingMessage: Message = {
-          id: `${Date.now()}-simple`,
+          id: `${createRuntimeId()}-simple`,
           type: 'ai',
           content: simpleReply,
-          timestamp: new Date(),
+          timestamp: createRuntimeDate(),
         };
 
         setMessages((prev) => [...prev, greetingMessage]);
@@ -845,10 +968,10 @@ export function ChatbotWorkspace({ onNavigate }: ChatbotWorkspaceProps = {}) {
       setCurrentThreadProvider(threadProvider);
 
       const aiMessage: Message = {
-        id: Date.now().toString(),
+        id: createRuntimeId(),
         type: 'ai',
         content: response.text,
-        timestamp: new Date(),
+        timestamp: createRuntimeDate(),
         backendMessageId: response.messageId,
       };
 
@@ -856,10 +979,10 @@ export function ChatbotWorkspace({ onNavigate }: ChatbotWorkspaceProps = {}) {
     } catch (error) {
       console.error('Chat error:', error);
       const errorMessage: Message = {
-        id: Date.now().toString(),
+        id: createRuntimeId(),
         type: 'ai',
         content: 'Sorry, I encountered an error. Please try again.',
-        timestamp: new Date(),
+        timestamp: createRuntimeDate(),
       };
       setMessages((prev) => [...prev, errorMessage]);
     } finally {
@@ -958,18 +1081,14 @@ export function ChatbotWorkspace({ onNavigate }: ChatbotWorkspaceProps = {}) {
   };
 
   const getLatestChatMessageId = () => {
-    const latestRelevantMessage = [...messages].reverse().find((message) => message.type === 'ai' || message.type === 'user');
+    const latestRelevantMessage = [...messages]
+      .reverse()
+      .find((message) => (
+        (message.type === 'ai' || message.type === 'user') &&
+        typeof message.backendMessageId === 'number'
+      ));
 
-    if (!latestRelevantMessage) {
-      return null;
-    }
-
-    if (typeof latestRelevantMessage.backendMessageId === 'number') {
-      return latestRelevantMessage.backendMessageId;
-    }
-
-    const parsedId = Number.parseInt(latestRelevantMessage.id, 10);
-    return Number.isFinite(parsedId) ? parsedId : null;
+    return latestRelevantMessage?.backendMessageId ?? null;
   };
 
   const hasUserChatMessage = () => messages.some((message) => message.type === 'user');
@@ -1074,6 +1193,15 @@ export function ChatbotWorkspace({ onNavigate }: ChatbotWorkspaceProps = {}) {
     }
 
     setIsProcessing(true);
+    setMessages((prev) => [
+      ...prev,
+      {
+        id: createRuntimeId(),
+        type: 'user',
+        content: 'Create flashcards from this chat.',
+        timestamp: new Date(),
+      },
+    ]);
 
     try {
       const response = await fetchFlashcardsFromChat(messageId);
@@ -1081,16 +1209,21 @@ export function ChatbotWorkspace({ onNavigate }: ChatbotWorkspaceProps = {}) {
         throw new Error(response.error || 'Failed to create flashcards from chat');
       }
 
+      const payload = JSON.parse(response.text) as Record<string, unknown>;
       const flashcards = mapFlashcardsResponse(response.text);
       if (flashcards.length === 0) {
         throw new Error('The server returned flashcards in an unexpected format.');
       }
 
+      const artifactTitle = getArtifactTitle(payload, flashcards[0]?.front || 'Chat Flashcards');
       const flashcardMessage: Message = {
-        id: Date.now().toString(),
+        id: createRuntimeId(),
         type: 'flashcard',
         content: 'Flashcards created from this chat.',
         timestamp: new Date(),
+        artifactId: getArtifactNumber(payload),
+        artifactTitle,
+        artifactTopic: typeof payload.topic === 'string' ? payload.topic : undefined,
         flashcards,
       };
 
@@ -1131,6 +1264,15 @@ export function ChatbotWorkspace({ onNavigate }: ChatbotWorkspaceProps = {}) {
     }
 
     setIsProcessing(true);
+    setMessages((prev) => [
+      ...prev,
+      {
+        id: createRuntimeId(),
+        type: 'user',
+        content: 'Create a quiz from this chat.',
+        timestamp: new Date(),
+      },
+    ]);
 
     try {
       const response = await fetchQuizFromChat(messageId);
@@ -1138,16 +1280,21 @@ export function ChatbotWorkspace({ onNavigate }: ChatbotWorkspaceProps = {}) {
         throw new Error(response.error || 'Failed to create quiz from chat');
       }
 
+      const payload = JSON.parse(response.text) as Record<string, unknown>;
       const quizData = mapQuizResponse(response.text);
       if (quizData.length === 0) {
         throw new Error('The server returned quiz questions in an unexpected format.');
       }
 
+      const artifactTitle = getArtifactTitle(payload, quizData[0]?.question || 'Chat Quiz');
       const quizMessage: Message = {
-        id: Date.now().toString(),
+        id: createRuntimeId(),
         type: 'quiz',
         content: 'Quiz created from this chat.',
         timestamp: new Date(),
+        artifactId: getArtifactNumber(payload),
+        artifactTitle,
+        artifactTopic: typeof payload.topic === 'string' ? payload.topic : undefined,
         quizData,
       };
 
@@ -1215,6 +1362,26 @@ export function ChatbotWorkspace({ onNavigate }: ChatbotWorkspaceProps = {}) {
 
   const cardsToReview = flashcardStats.total - flashcardStats.known;
 
+  const quizStats = messages.reduce(
+    (stats, message) => {
+      if (message.type !== 'quiz' || !message.quizData) return stats;
+
+      message.quizData.forEach((question) => {
+        stats.total += 1;
+        const answer = quizAnswers[question.id];
+        if (answer === undefined) return;
+
+        stats.answered += 1;
+        if (answer === question.correctAnswer) {
+          stats.correct += 1;
+        }
+      });
+
+      return stats;
+    },
+    { total: 0, answered: 0, correct: 0 },
+  );
+
   const handleEmotionalFeedback = (emotion: 'focused' | 'tired' | 'distracted') => {
     const responses = {
       focused: 'Great. Keep up the momentum!',
@@ -1243,8 +1410,6 @@ export function ChatbotWorkspace({ onNavigate }: ChatbotWorkspaceProps = {}) {
     setEmotionState(workspaceEmotionMap[emotion]);
     setEmotionalState(emotionalStateMap[emotion]);
 
-    // Log feedback for analytics (optional)
-    console.log('Emotional feedback:', emotion, new Date());
   };
 
   // Get full-screen gradient based on current state
@@ -1458,7 +1623,6 @@ export function ChatbotWorkspace({ onNavigate }: ChatbotWorkspaceProps = {}) {
         <ChatMessageList
           messages={messages}
           isProcessing={isProcessing}
-          uploadProgress={uploadProgress}
           chatEndRef={chatEndRef}
           currentFlashcardIndex={currentFlashcardIndex}
           revealedFlashcardIds={revealedFlashcardIds}
@@ -1497,8 +1661,10 @@ export function ChatbotWorkspace({ onNavigate }: ChatbotWorkspaceProps = {}) {
         onOpenChange={setRightSidebarOpen}
         uploadedDocs={uploadedDocs}
         flashcardStats={flashcardStats}
+        quizStats={quizStats}
         cardsToReview={cardsToReview}
         focusScore={contextFocusScore}
+        isFocusTrackingEnabled={isDetectionEnabled}
         isStrictMode={isStrictMode}
         distractionCount={distractionCount}
         focusDriftCount={focusDriftCount}
@@ -1521,7 +1687,7 @@ export function ChatbotWorkspace({ onNavigate }: ChatbotWorkspaceProps = {}) {
             {/* ── STRICT MODE ── */}
             {/* ── END STRICT MODE ── */}
 
-      {false && (
+      {showWorkspaceGuide && (
         <Dialog open={false} onOpenChange={() => undefined}>
           <DialogContent className=" max-w-2xl">
             <DialogHeader>

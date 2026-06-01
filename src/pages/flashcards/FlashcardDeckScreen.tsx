@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { motion } from 'motion/react';
 import { Button } from '../../components/ui/button';
 import { Input } from '../../components/ui/input';
@@ -48,10 +48,80 @@ import {
   mapDeck,
   normalizeDeckTitle,
 } from '../../types/FlashcardTypes';
+import { CHAT_FLASHCARD_PROGRESS_KEY } from '../../types/ChatTypes';
+import { formatUserDate } from '../../utils/timezone';
 
 interface FlashcardDeckScreenProps {
   onNavigate: (page: string) => void;
 }
+
+const readChatFlashcardProgress = (): Record<string, Record<string, unknown>> => {
+  try {
+    const raw = localStorage.getItem(CHAT_FLASHCARD_PROGRESS_KEY);
+    if (!raw) return {};
+    const parsed = JSON.parse(raw);
+    return parsed && typeof parsed === 'object' && !Array.isArray(parsed)
+      ? parsed as Record<string, Record<string, unknown>>
+      : {};
+  } catch {
+    return {};
+  }
+};
+
+const parseProgressDate = (value: unknown) => {
+  if (!value) return undefined;
+  const date = new Date(String(value));
+  return Number.isNaN(date.getTime()) ? undefined : date;
+};
+
+const getDeckProgressRecord = (deck: Deck) => {
+  const records = readChatFlashcardProgress();
+  return records[`id:${deck.id}`] ?? records[`title:${deck.title.trim().toLowerCase()}`];
+};
+
+const applyChatFlashcardProgress = (deck: Deck): Deck => {
+  const record = getDeckProgressRecord(deck);
+  if (!record) return deck;
+
+  const reviewCount = Number(record.reviewCount ?? 0);
+  const progress = Number(record.progress ?? deck.progress);
+  const accuracy = Number(record.accuracy ?? deck.accuracy);
+  const lastReviewed = parseProgressDate(record.lastReviewed);
+  const knownCardIds = Array.isArray(record.knownCardIds)
+    ? new Set(record.knownCardIds.map((cardId) => String(cardId)))
+    : new Set<string>();
+
+  return {
+    ...deck,
+    reviewCount: Math.max(deck.reviewCount, Number.isFinite(reviewCount) ? reviewCount : 0),
+    progress: Number.isFinite(progress) ? Math.max(deck.progress, progress) : deck.progress,
+    accuracy: Number.isFinite(accuracy) ? Math.max(deck.accuracy, accuracy) : deck.accuracy,
+    lastReviewed: deck.lastReviewed ?? lastReviewed,
+    cards: deck.cards.map((card) =>
+      knownCardIds.has(card.id)
+        ? {
+            ...card,
+            correctCount: Math.max(card.correctCount, 1),
+            lastReviewed: card.lastReviewed ?? lastReviewed,
+          }
+        : card,
+    ),
+  };
+};
+
+type FlashcardKeyboardHandlers = {
+  revealCurrentCard: () => void;
+  handleCardReview: (known: boolean) => Promise<void>;
+  handlePreviousCard: () => void;
+  handleNextCard: () => void;
+  handleShuffle: () => void;
+};
+
+const getResponseStatus = (error: unknown) =>
+  (error as { response?: { status?: number } }).response?.status;
+
+const getResponseDetail = (error: unknown) =>
+  (error as { response?: { data?: { detail?: string } } }).response?.data?.detail;
 
 export function FlashcardDeckScreen({ onNavigate }: FlashcardDeckScreenProps) {
   const [searchQuery, setSearchQuery] = useState('');
@@ -71,6 +141,16 @@ export function FlashcardDeckScreen({ onNavigate }: FlashcardDeckScreenProps) {
   const [isSavingReview, setIsSavingReview] = useState(false);
   const [answeredCardIds, setAnsweredCardIds] = useState<Set<string>>(() => new Set());
   const [attemptResults, setAttemptResults] = useState<Record<string, boolean>>({});
+  const keyboardHandlersRef = useRef<FlashcardKeyboardHandlers>({
+    revealCurrentCard: () => undefined,
+    handleCardReview: (known: boolean) => {
+      void known;
+      return Promise.resolve();
+    },
+    handlePreviousCard: () => undefined,
+    handleNextCard: () => undefined,
+    handleShuffle: () => undefined,
+  });
 
   const fetchDecks = async () => {
     setIsLoadingDecks(true);
@@ -78,7 +158,7 @@ export function FlashcardDeckScreen({ onNavigate }: FlashcardDeckScreenProps) {
       const authHeaders = await getAuthHeaders();
       const res = await backendClient.get(BACKEND_ROUTES.flashcards, { headers: authHeaders });
       const data = Array.isArray(res.data) ? res.data : [];
-      const mappedDecks = data.map((d: any) => mapDeck(d));
+      const mappedDecks = data.map((d: unknown) => applyChatFlashcardProgress(mapDeck(d)));
       setDecks(mappedDecks);
 
       const titledDecks = await Promise.all(
@@ -89,26 +169,26 @@ export function FlashcardDeckScreen({ onNavigate }: FlashcardDeckScreenProps) {
             const detailResponse = await backendClient.get(`${BACKEND_ROUTES.flashcards}/${deck.id}`, {
               headers: authHeaders,
             });
-            const cards = (Array.isArray(detailResponse.data) ? detailResponse.data : []).map((c: any) => mapCard(c));
+            const cards = (Array.isArray(detailResponse.data) ? detailResponse.data : []).map((c: unknown) => mapCard(c));
             const firstCardTitle = cards[0]?.front;
             if (!firstCardTitle) return deck;
 
-            return {
+            return applyChatFlashcardProgress({
               ...deck,
               title: firstCardTitle,
               description: isGenericChatFlashcardTitle(deck.description) ? firstCardTitle : deck.description,
               cards,
               totalCards: cards.length,
-            };
+            });
           } catch {
             return deck;
           }
         }),
       );
 
-      setDecks(titledDecks);
-    } catch (err: any) {
-      const status = err?.response?.status;
+      setDecks(titledDecks.map((deck) => applyChatFlashcardProgress(deck)));
+    } catch (err: unknown) {
+      const status = getResponseStatus(err);
       if (status === 401) {
         toast.error('Unauthorized. Please sign in to load flashcards.');
       } else {
@@ -126,26 +206,26 @@ export function FlashcardDeckScreen({ onNavigate }: FlashcardDeckScreenProps) {
       const res = await backendClient.get(`${BACKEND_ROUTES.flashcards}/${deck.id}`, {
         headers: authHeaders,
       });
-      const cards = (Array.isArray(res.data) ? res.data : []).map((c: any) => mapCard(c));
+      const cards = (Array.isArray(res.data) ? res.data : []).map((c: unknown) => mapCard(c));
       if (cards.length === 0) {
         toast('This deck has no cards yet.');
         return;
       }
 
-      setSelectedDeck({
+      setSelectedDeck(applyChatFlashcardProgress({
         ...deck,
         title: isGenericChatFlashcardTitle(deck.title) ? cards[0].front : deck.title,
         description: isGenericChatFlashcardTitle(deck.description) ? cards[0].front : deck.description,
         cards,
         totalCards: cards.length,
-      });
+      }));
       setCurrentCardIndex(0);
       setRevealedCardIds(new Set());
       setStudyControlsLocked(false);
       setAnsweredCardIds(new Set());
       setAttemptResults({});
-    } catch (err: any) {
-      const status = err?.response?.status;
+    } catch (err: unknown) {
+      const status = getResponseStatus(err);
       if (status === 401) {
         toast.error('Unauthorized. Please sign in to open this deck.');
       } else {
@@ -180,7 +260,7 @@ export function FlashcardDeckScreen({ onNavigate }: FlashcardDeckScreenProps) {
 
       const createdDeck = mapDeck(res.data?.deck ?? {});
       const createdCards = Array.isArray(res.data?.flashcards)
-        ? res.data.flashcards.map((c: any) => mapCard(c))
+        ? res.data.flashcards.map((c: unknown) => mapCard(c))
         : [];
       const createdTitle = isGenericChatFlashcardTitle(createdDeck.title) && createdCards[0]?.front
         ? createdCards[0].front
@@ -201,15 +281,15 @@ export function FlashcardDeckScreen({ onNavigate }: FlashcardDeckScreenProps) {
       setNewTopic('');
       setNewCardCount('5');
       toast.success('Flashcard deck created successfully.');
-    } catch (err: any) {
-      const status = err?.response?.status;
+    } catch (err: unknown) {
+      const status = getResponseStatus(err);
       if (status === 401) {
         toast.error('Unauthorized. Please sign in to create flashcards.');
       } else {
         try {
           const authHeaders = await getAuthHeaders();
           const decksResponse = await backendClient.get(BACKEND_ROUTES.flashcards, { headers: authHeaders });
-          const refreshedDecks = (Array.isArray(decksResponse.data) ? decksResponse.data : []).map((deck: any) => mapDeck(deck));
+          const refreshedDecks = (Array.isArray(decksResponse.data) ? decksResponse.data : []).map((deck: unknown) => applyChatFlashcardProgress(mapDeck(deck)));
           setDecks(refreshedDecks);
 
           const recoveredDeck = refreshedDecks.find((deck) =>
@@ -232,7 +312,7 @@ export function FlashcardDeckScreen({ onNavigate }: FlashcardDeckScreenProps) {
         if (status === 502) {
           toast.error('Flashcard generation failed at the backend. Please try again in a moment.');
         } else {
-          toast.error(err?.response?.data?.detail || 'Failed to create flashcard deck.');
+          toast.error(getResponseDetail(err) || 'Failed to create flashcard deck.');
         }
       }
     } finally {
@@ -241,7 +321,7 @@ export function FlashcardDeckScreen({ onNavigate }: FlashcardDeckScreenProps) {
   };
 
   useEffect(() => {
-    void fetchDecks();
+    void Promise.resolve().then(fetchDecks);
   }, []);
 
   useEffect(() => {
@@ -266,14 +346,14 @@ export function FlashcardDeckScreen({ onNavigate }: FlashcardDeckScreenProps) {
             const authHeaders = await getAuthHeaders();
             const decksResponse = await backendClient.get(BACKEND_ROUTES.flashcards, { headers: authHeaders });
             const deckList = Array.isArray(decksResponse.data) ? decksResponse.data : [];
-            const matchingDeck = deckList.find((deck: any) => String(deck.id) === String(pendingDeckId));
-            const deck = mapDeck(matchingDeck ?? {
+            const matchingDeck = deckList.find((deck: Record<string, unknown>) => String(deck.id) === String(pendingDeckId));
+            const deck = applyChatFlashcardProgress(mapDeck(matchingDeck ?? {
               id: pendingDeckId,
               title: payload.title,
               topic: payload.topic,
               description: payload.description,
               source: 'chat',
-            });
+            }));
 
             await fetchDeckById(deck);
           } catch {
@@ -311,24 +391,26 @@ export function FlashcardDeckScreen({ onNavigate }: FlashcardDeckScreenProps) {
 
       if (cards.length === 0) return;
 
-      setSelectedDeck({
-        id: String(payload.id ?? `chat-history-flashcards-${Date.now()}`),
-        title: isGenericChatFlashcardTitle(payload.title) ? cards[0].front : normalizeDeckTitle(payload.title) || cards[0].front,
-        description: payload.description || cards[0].front || 'Flashcards generated from chat history.',
-        cards,
-        totalCards: cards.length,
-        progress: 0,
-        accuracy: 0,
-        reviewCount: 0,
-        createdAt: new Date(),
-        sourceType: 'Chat',
+      void Promise.resolve().then(() => {
+        setSelectedDeck(applyChatFlashcardProgress({
+          id: String(payload.id ?? `chat-history-flashcards-${Date.now()}`),
+          title: isGenericChatFlashcardTitle(payload.title) ? cards[0].front : normalizeDeckTitle(payload.title) || cards[0].front,
+          description: payload.description || cards[0].front || 'Flashcards generated from chat history.',
+          cards,
+          totalCards: cards.length,
+          progress: 0,
+          accuracy: 0,
+          reviewCount: 0,
+          createdAt: new Date(),
+          sourceType: 'Chat',
+        }));
+        setCurrentCardIndex(0);
+        setRevealedCardIds(new Set());
+        setStudyControlsLocked(false);
+        setStreak(0);
+        setAnsweredCardIds(new Set());
+        setAttemptResults({});
       });
-      setCurrentCardIndex(0);
-      setRevealedCardIds(new Set());
-      setStudyControlsLocked(false);
-      setStreak(0);
-      setAnsweredCardIds(new Set());
-      setAttemptResults({});
     } catch {
       toast.error('Could not open the generated flashcards from chat history.');
     }
@@ -402,8 +484,8 @@ export function FlashcardDeckScreen({ onNavigate }: FlashcardDeckScreenProps) {
         },
         { headers: authHeaders },
       );
-    } catch (err: any) {
-      const status = err?.response?.status;
+    } catch (err: unknown) {
+      const status = getResponseStatus(err);
       if (status === 401) {
         toast.error('Unauthorized. Please sign in to save review progress.');
       } else {
@@ -493,6 +575,16 @@ export function FlashcardDeckScreen({ onNavigate }: FlashcardDeckScreenProps) {
   };
 
   useEffect(() => {
+    keyboardHandlersRef.current = {
+      revealCurrentCard,
+      handleCardReview,
+      handlePreviousCard,
+      handleNextCard,
+      handleShuffle,
+    };
+  });
+
+  useEffect(() => {
     if (!selectedDeck || showCreateDialog) return;
 
     const handleFlashcardKeyDown = (event: KeyboardEvent) => {
@@ -500,31 +592,31 @@ export function FlashcardDeckScreen({ onNavigate }: FlashcardDeckScreenProps) {
 
       if (event.key === ' ' || event.key === 'Enter') {
         event.preventDefault();
-        revealCurrentCard();
+        keyboardHandlersRef.current.revealCurrentCard();
         return;
       }
 
       if (event.key.toLowerCase() === 'k') {
         event.preventDefault();
-        void handleCardReview(true);
+        void keyboardHandlersRef.current.handleCardReview(true);
         return;
       }
 
       if (event.key === 'ArrowLeft') {
         event.preventDefault();
-        handlePreviousCard();
+        keyboardHandlersRef.current.handlePreviousCard();
         return;
       }
 
       if (event.key === 'ArrowRight') {
         event.preventDefault();
-        handleNextCard();
+        keyboardHandlersRef.current.handleNextCard();
         return;
       }
 
       if (event.key.toLowerCase() === 's') {
         event.preventDefault();
-        handleShuffle();
+        keyboardHandlersRef.current.handleShuffle();
       }
     };
 
@@ -708,7 +800,7 @@ export function FlashcardDeckScreen({ onNavigate }: FlashcardDeckScreenProps) {
                     {/* Progress Ring */}
                     <div className="flex items-center justify-center">
                       <div className="relative w-24 h-24">
-                        <svg className="w-full h-full -rotate-90">
+                        <svg className="w-full h-full -rotate-90 overflow-visible" viewBox="0 0 96 96">
                           <circle
                             cx="48"
                             cy="48"
@@ -762,13 +854,13 @@ export function FlashcardDeckScreen({ onNavigate }: FlashcardDeckScreenProps) {
                       <div className="flex justify-between">
                         <span className="flashcard-stat-label">Created:</span>
                         <span className="flashcard-date-text">
-                          {deck.createdAt?.toLocaleDateString() ?? 'Unknown'}
+                          {deck.createdAt ? formatUserDate(deck.createdAt) : 'Unknown'}
                         </span>
                       </div>
                       <div className="flex justify-between">
                         <span className="flashcard-stat-label">Last Reviewed:</span>
                         <span className="flashcard-date-text">
-                          {deck.lastReviewed?.toLocaleDateString() ?? 'Not reviewed'}
+                          {deck.lastReviewed ? formatUserDate(deck.lastReviewed) : 'Not reviewed'}
                         </span>
                       </div>
                     </div>
@@ -890,6 +982,12 @@ export function FlashcardDeckScreen({ onNavigate }: FlashcardDeckScreenProps) {
                 <motion.div
                   className="relative h-96 cursor-pointer"
                   onClick={revealCurrentCard}
+                  onKeyDown={(event) => {
+                    if (event.key === 'Enter' || event.key === ' ') {
+                      event.preventDefault();
+                      revealCurrentCard();
+                    }
+                  }}
                   role="button"
                   tabIndex={0}
                   aria-label={isCurrentCardRevealed ? 'Flashcard answer revealed' : 'Reveal flashcard answer'}
@@ -909,7 +1007,7 @@ export function FlashcardDeckScreen({ onNavigate }: FlashcardDeckScreenProps) {
                         {currentCard.difficulty}
                       </Badge>
                       <p className="flashcard-front-text">{currentCard.front}</p>
-                      <p className="flashcard-hint-text">Click to reveal answer</p>
+                      <p className="flashcard-hint-text">Click, Enter, or Space to reveal answer</p>
                     </div>
                   </div>
 
@@ -989,13 +1087,13 @@ export function FlashcardDeckScreen({ onNavigate }: FlashcardDeckScreenProps) {
                   <div>
                     <p className="flashcard-metadata-label">Created</p>
                     <p className="flashcard-metadata-date">
-                      {selectedDeck.createdAt?.toLocaleDateString() ?? 'Unknown'}
+                      {selectedDeck.createdAt ? formatUserDate(selectedDeck.createdAt) : 'Unknown'}
                     </p>
                   </div>
                   <div>
                     <p className="flashcard-metadata-label">Last Reviewed</p>
                     <p className="flashcard-metadata-date">
-                      {currentCard.lastReviewed?.toLocaleDateString() ?? 'Not reviewed'}
+                      {currentCard.lastReviewed ? formatUserDate(currentCard.lastReviewed) : 'Not reviewed'}
                     </p>
                   </div>
                 </CardContent>

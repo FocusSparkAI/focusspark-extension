@@ -26,20 +26,22 @@ export function ProtectedRoute({ children }: ProtectedRouteProps) {
     };
   }, []);
 
-  if (checking) return null;
+  useEffect(() => {
+    if (checking || hasToken) return;
 
-  if (!hasToken) {
     if (!toastShownRef.current) {
-      // Small UX: inform user they need to sign in
       toast.info('Please sign in to continue', { duration: 2000 });
       toastShownRef.current = true;
     }
 
-    if (!redirecting) {
-      // delay redirect briefly so toast is visible
-      setTimeout(() => setRedirecting(true), 650);
-      return null;
-    }
+    const timer = window.setTimeout(() => setRedirecting(true), 650);
+    return () => window.clearTimeout(timer);
+  }, [checking, hasToken]);
+
+  if (checking) return null;
+
+  if (!hasToken) {
+    if (!redirecting) return null;
 
     return <Navigate to="/signin" replace />;
   }

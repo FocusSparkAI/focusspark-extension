@@ -57,13 +57,13 @@ export function EmotionalFeedbackPopup({
               >
                 <h3 className="text-lg mb-2">How are you feeling right now?</h3>
                 <p className="text-sm text-secondary">
-                  Your answer will adjust the workspace mood and focus guidance.
+                  Your answer will adjust the workspace mood and study guidance.
                 </p>
               </motion.div>
 
               {/* Emotion Buttons */}
               <div className="grid grid-cols-3 gap-3">
-                {/* Focused */}
+                {/* Good */}
                 <motion.div
                   initial={{ opacity: 0, scale: 0.8 }}
                   animate={{ opacity: 1, scale: 1 }}
@@ -76,7 +76,7 @@ export function EmotionalFeedbackPopup({
                     className="flex-col h-28 w-full px-3 py-4 hover:bg-blue-500/10 hover:border-blue-500/40 transition-all group"
                   >
                     <Smile className="w-8 h-8 mb-2 text-blue-400 group-hover:scale-110 transition-transform" />
-                    <span className="text-xs">Focused</span>
+                    <span className="text-xs">Good</span>
                   </Button>
                 </motion.div>
 
@@ -97,7 +97,7 @@ export function EmotionalFeedbackPopup({
                   </Button>
                 </motion.div>
 
-                {/* Distracted */}
+                {/* Stressed */}
                 <motion.div
                   initial={{ opacity: 0, scale: 0.8 }}
                   animate={{ opacity: 1, scale: 1 }}
@@ -110,7 +110,7 @@ export function EmotionalFeedbackPopup({
                     className="flex-col h-28 w-full px-3 py-4 hover:bg-red-500/10 hover:border-red-500/40 transition-all group"
                   >
                     <Frown className="w-8 h-8 mb-2 text-red-400 group-hover:scale-110 transition-transform" />
-                    <span className="text-xs">Distracted</span>
+                    <span className="text-xs">Stressed</span>
                   </Button>
                 </motion.div>
               </div>

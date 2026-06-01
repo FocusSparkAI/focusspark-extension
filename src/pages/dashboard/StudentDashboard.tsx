@@ -25,8 +25,8 @@ import { Button } from '../../components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '../../components/ui/card';
 import { Input } from '../../components/ui/input';
 import { Label } from '../../components/ui/label';
-import { useFocus } from '../../context/FocusContext';
-import { usePomodoro } from '../../context/PomodoroContext';
+import { useFocus } from '../../hooks/useFocus';
+import { usePomodoro } from '../../hooks/usePomodoro';
 import { BACKEND_ROUTES } from '../../config/backend';
 import backendClient, { getAuthHeaders } from '../../utils/backendClient';
 
@@ -92,8 +92,8 @@ export function StudentDashboard({ onNavigate, onLogout }: StudentDashboardProps
   const [dashboardStats, setDashboardStats] = useState({
     flashcardDecks: 0,
     quizSets: 0,
-    activeGoal: null as any,
-    todayGoalStats: null as any,
+    activeGoal: null as Record<string, unknown> | null,
+    todayGoalStats: null as Record<string, unknown> | null,
     isLoading: true,
   });
   const [profileName, setProfileName] = useState('');
@@ -115,7 +115,7 @@ export function StudentDashboard({ onNavigate, onLogout }: StudentDashboardProps
     ? `${Number(activeGoal.current_minutes ?? 0)}/${Number(activeGoal.target_minutes ?? 0)}m`
     : 'No goal';
   const activeGoalHelper = activeGoal
-    ? activeGoal.title
+    ? String(activeGoal.title ?? '')
     : Number(dashboardStats.todayGoalStats?.completed ?? 0) > 0
     ? 'All goals completed today'
     : 'Set one on the website';

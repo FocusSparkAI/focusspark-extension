@@ -5,6 +5,9 @@ export interface Message {
   timestamp: Date;
   attachmentName?: string;
   backendMessageId?: number;
+  artifactId?: number;
+  artifactTitle?: string;
+  artifactTopic?: string;
   flashcards?: Flashcard[];
   quizData?: QuizQuestion[];
 }
@@ -45,6 +48,9 @@ export const AI_MODELS = [
 ] as const;
 
 export type AIModelId = (typeof AI_MODELS)[number]['id'];
+
+export const CHAT_QUIZ_PROGRESS_KEY = 'focusspark-chat-quiz-progress';
+export const CHAT_FLASHCARD_PROGRESS_KEY = 'focusspark-chat-flashcard-progress';
 
 export const createInitialMessages = (): Message[] => [
   {

@@ -12,8 +12,10 @@ export function MotivationalPopup({
   isVisible,
   message,
   type,
-  onClose: _onClose,
+  onClose,
 }: MotivationalPopupProps) {
+  void onClose;
+
   const getConfig = () => {
     switch (type) {
       case 'focused':

@@ -1,9 +1,9 @@
-import { type ReactNode, useEffect, useMemo, useState } from 'react';
+import { type ReactNode, useCallback, useEffect, useMemo, useState } from 'react';
 import { CheckCircle2, Clock, Pause, Play, SkipForward, Zap } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '../../components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '../../components/ui/card';
-import { usePomodoro } from '../../context/PomodoroContext';
+import { usePomodoro } from '../../hooks/usePomodoro';
 
 interface PomodoroTimerProps {
   focusMinutes?: number;
@@ -36,32 +36,10 @@ export function PomodoroTimer({
         label: `#${index + 1}`,
         duration: `${session.focusMinutes}m`,
         completed: session.completed,
-      }));
+    }));
   }, [sessions]);
 
-  useEffect(() => {
-    let interval: number | null = null;
-
-    if (isActive && time > 0) {
-      interval = window.setInterval(() => {
-        setTime((currentTime) => currentTime - 1);
-      }, 1000);
-    } else if (time === 0) {
-      handleTimerComplete();
-    }
-
-    return () => {
-      if (interval) clearInterval(interval);
-    };
-  }, [isActive, time]);
-
-  useEffect(() => {
-    if (!isActive) {
-      setTime(isBreak ? breakSeconds : focusSeconds);
-    }
-  }, [focusSeconds, breakSeconds, isActive, isBreak]);
-
-  const handleTimerComplete = () => {
+  const handleTimerComplete = useCallback(() => {
     setIsActive(false);
 
     if (isBreak) {
@@ -75,7 +53,29 @@ export function PomodoroTimer({
       setTime(breakSeconds);
       setIsBreak(true);
     }
-  };
+  }, [breakSeconds, focusSeconds, isBreak]);
+
+  useEffect(() => {
+    let interval: number | null = null;
+
+    if (isActive && time > 0) {
+      interval = window.setInterval(() => {
+        setTime((currentTime) => currentTime - 1);
+      }, 1000);
+    } else if (time === 0) {
+      void Promise.resolve().then(handleTimerComplete);
+    }
+
+    return () => {
+      if (interval) clearInterval(interval);
+    };
+  }, [isActive, time, handleTimerComplete]);
+
+  useEffect(() => {
+    if (!isActive) {
+      void Promise.resolve().then(() => setTime(isBreak ? breakSeconds : focusSeconds));
+    }
+  }, [focusSeconds, breakSeconds, isActive, isBreak]);
 
   const minutes = Math.floor(time / 60);
   const seconds = time % 60;

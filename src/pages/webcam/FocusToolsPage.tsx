@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   AlertCircle,
   ArrowLeft,
@@ -16,6 +16,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '../../components/ui/ca
 import { Switch } from '../../components/ui/switch';
 import { BACKEND_ROUTES, buildBackendUrl, buildBackendWsUrl } from '../../config/backend';
 import { getAccessToken, getAuthHeaders } from '../../utils/backendClient';
+import { useFocus } from '../../hooks/useFocus';
 
 interface FocusToolsPageProps {
   onNavigate: (page: string) => void;
@@ -176,7 +177,28 @@ const normalizeEmotion = (value: unknown): EmotionState | null => {
   return null;
 };
 
+const normalizeFocused = (value: unknown): boolean | null => {
+  if (typeof value === 'boolean') return value;
+  if (typeof value !== 'string') return null;
+
+  const normalized = value.trim().toLowerCase().replace(/[\s-]+/g, '_');
+  if (['focused', 'focus', 'true', 'yes', 'engaged', 'attentive'].includes(normalized)) return true;
+  if (
+    ['unfocused', 'distracted', 'false', 'no', 'not_focused', 'looking_away', 'eyes_closed', 'no_face'].includes(normalized)
+  ) {
+    return false;
+  }
+
+  return null;
+};
+
 export function FocusToolsPage({ onNavigate }: FocusToolsPageProps) {
+  const {
+    setIsFocused,
+    setIsDetectionEnabled,
+    setFocusScore: setContextFocusScore,
+    setEmotionalState,
+  } = useFocus();
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const wsRef = useRef<WebSocket | null>(null);
@@ -211,39 +233,57 @@ export function FocusToolsPage({ onNavigate }: FocusToolsPageProps) {
     }
   };
 
-  const applyDetectionResult = (data: Record<string, unknown>) => {
+  const applyDetectionResult = useCallback((data: Record<string, unknown>) => {
+    const metrics = (data.metrics ?? {}) as Record<string, unknown>;
     const backendEmotion =
       normalizeEmotion(data.emotion) ||
       normalizeEmotion(data.emotional_state) ||
       normalizeEmotion(data.emotionalState) ||
-      normalizeEmotion(data.mood);
+      normalizeEmotion(data.mood) ||
+      normalizeEmotion(metrics.emotion);
 
     if (backendEmotion) {
       setEmotionState(backendEmotion);
+      setEmotionalState(backendEmotion);
     }
 
-    if (typeof data.focused === 'boolean') {
-      setDetectionState(data.focused ? 'focused' : 'distracted');
+    const backendState =
+      normalizeDetectionState(data.status) ||
+      normalizeDetectionState(data.state) ||
+      normalizeDetectionState(data.result) ||
+      normalizeDetectionState(data.label) ||
+      normalizeDetectionState(data.reason);
+    const focusedCandidates = [
+      normalizeFocused(data.focused),
+      normalizeFocused(data.is_focused),
+      normalizeFocused(data.isFocused),
+      normalizeFocused(data.attention),
+      backendState ? normalizeFocused(backendState) : null,
+    ];
+    const backendFocused = focusedCandidates.find((value): value is boolean => value !== null) ?? null;
+
+    if (backendFocused !== null) {
+      setDetectionState(backendFocused ? 'focused' : backendState ?? 'distracted');
+      setIsFocused(backendFocused);
     } else {
-      const backendState =
-        normalizeDetectionState(data.status) ||
-        normalizeDetectionState(data.state) ||
-        normalizeDetectionState(data.result) ||
-        normalizeDetectionState(data.label) ||
-        normalizeDetectionState(data.reason);
-
       setDetectionState(backendState ?? 'waiting');
+      if (backendState) {
+        setIsFocused(backendState === 'focused');
+      }
     }
 
-    const backendScore = data.focus_score ?? data.focusScore ?? data.score ?? data.confidence;
+    const backendScore = metrics.focus_score ?? data.focus_score ?? data.focusScore ?? data.score ?? data.confidence;
     const normalizedScore =
       typeof backendScore === 'number'
         ? backendScore <= 1
           ? Math.round(backendScore * 100)
           : Math.round(backendScore)
         : null;
-    setFocusScore(normalizedScore);
-  };
+    const fallbackScore = backendFocused === null ? null : backendFocused ? 85 : 35;
+    const nextScore = normalizedScore ?? fallbackScore;
+    setFocusScore(nextScore);
+    setContextFocusScore(nextScore ?? 50);
+  }, [setContextFocusScore, setEmotionalState, setIsFocused]);
 
   const runHttpDetection = async (imageData: string) => {
     if (detectInFlightRef.current) return;
@@ -277,6 +317,12 @@ export function FocusToolsPage({ onNavigate }: FocusToolsPageProps) {
     }
   };
 
+  const runHttpDetectionRef = useRef(runHttpDetection);
+
+  useEffect(() => {
+    runHttpDetectionRef.current = runHttpDetection;
+  });
+
   useEffect(() => {
     if (isWebcamEnabled && isTracking) {
       const interval = window.setInterval(() => {
@@ -290,8 +336,8 @@ export function FocusToolsPage({ onNavigate }: FocusToolsPageProps) {
           return;
         }
 
-        void runHttpDetection(imageData);
-      }, 2000);
+        void runHttpDetectionRef.current(imageData);
+      }, 1000);
 
       return () => clearInterval(interval);
     }
@@ -340,15 +386,23 @@ export function FocusToolsPage({ onNavigate }: FocusToolsPageProps) {
         wsRef.current.close();
         wsRef.current = null;
       }
-      setTransportMode('idle');
-      setDetectionState('idle');
-      setEmotionState('neutral');
+      void Promise.resolve().then(() => {
+        setTransportMode('idle');
+        setDetectionState('idle');
+        setEmotionState('neutral');
+        setFocusScore(null);
+        setIsFocused(false);
+        setContextFocusScore(50);
+        setEmotionalState('neutral');
+      });
       return;
     }
 
-    setTransportMode('connecting');
-    setDetectionState('waiting');
-    setEmotionState('neutral');
+    void Promise.resolve().then(() => {
+      setTransportMode('connecting');
+      setDetectionState('waiting');
+      setEmotionState('neutral');
+    });
     socketShouldStayActiveRef.current = true;
     let ws: WebSocket | null = null;
 
@@ -415,7 +469,7 @@ export function FocusToolsPage({ onNavigate }: FocusToolsPageProps) {
         wsRef.current = null;
       }
     };
-  }, [isWebcamEnabled, isTracking, websocketUrl]);
+  }, [applyDetectionResult, isWebcamEnabled, isTracking, setContextFocusScore, setEmotionalState, setIsFocused, websocketUrl]);
 
   useEffect(() => {
     return () => {
@@ -461,8 +515,26 @@ export function FocusToolsPage({ onNavigate }: FocusToolsPageProps) {
     setDetectionState('idle');
     setEmotionState('neutral');
     setFocusScore(null);
+    setIsFocused(false);
+    setIsDetectionEnabled(false);
+    setContextFocusScore(50);
+    setEmotionalState('neutral');
     setTransportMode('idle');
     toast('Webcam disabled');
+  };
+
+  const handleTrackingChange = (nextTracking: boolean) => {
+    setIsTracking(nextTracking);
+    setIsDetectionEnabled(nextTracking);
+
+    if (!nextTracking) {
+      setDetectionState('idle');
+      setEmotionState('neutral');
+      setFocusScore(null);
+      setIsFocused(false);
+      setContextFocusScore(50);
+      setEmotionalState('neutral');
+    }
   };
 
   const transportLabel =
@@ -640,7 +712,7 @@ export function FocusToolsPage({ onNavigate }: FocusToolsPageProps) {
                       </div>
                       <div className="flex items-center justify-between gap-3 border-t border-border pt-2">
                         <span className="text-secondary">Check rate</span>
-                        <span className="font-medium">Every 2 sec</span>
+                        <span className="font-medium">Every 1 sec</span>
                       </div>
                     </div>
 
@@ -653,7 +725,7 @@ export function FocusToolsPage({ onNavigate }: FocusToolsPageProps) {
                       </div>
                       <Switch
                         checked={isTracking}
-                        onCheckedChange={setIsTracking}
+                        onCheckedChange={handleTrackingChange}
                         disabled={!isWebcamEnabled}
                       />
                     </div>

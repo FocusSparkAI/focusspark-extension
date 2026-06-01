@@ -49,13 +49,74 @@ import {
   parseQuizDate,
   toQuizHeadingFromQuestion,
 } from '../../types/QuizTypes';
+import { CHAT_QUIZ_PROGRESS_KEY } from '../../types/ChatTypes';
+import { formatUserDate } from '../../utils/timezone';
 
 interface QuizScreenProps {
   onNavigate: (page: string) => void;
 }
 
+type ChromeQuizApi = {
+  runtime?: {
+    sendMessage?: (message: unknown, callback?: () => void) => void;
+  };
+  tabs?: {
+    getCurrent?: (callback: (tab?: { id?: number }) => void) => void;
+  };
+};
+
+type QuizKeyboardHandlers = {
+  handleAnswerSelect: (choiceIndex: number) => void;
+  handleNext: () => void;
+  handlePrevious: () => void;
+  handleSubmitAll: (allowIncomplete?: boolean) => Promise<void>;
+  handleSubmitAnswer: () => void;
+};
+
+const getResponseStatus = (error: unknown) =>
+  (error as { response?: { status?: number } }).response?.status;
+
+const getOptionalNumber = (value: unknown) =>
+  typeof value === 'number' ? value : undefined;
+
+const readChatQuizProgress = (): Record<string, Record<string, unknown>> => {
+  try {
+    const raw = localStorage.getItem(CHAT_QUIZ_PROGRESS_KEY);
+    if (!raw) return {};
+    const parsed = JSON.parse(raw);
+    return parsed && typeof parsed === 'object' && !Array.isArray(parsed)
+      ? parsed as Record<string, Record<string, unknown>>
+      : {};
+  } catch {
+    return {};
+  }
+};
+
+const getQuizProgressRecord = (quiz: Quiz) => {
+  const records = readChatQuizProgress();
+  return records[`id:${quiz.id}`] ?? records[`title:${quiz.title.trim().toLowerCase()}`];
+};
+
+const applyChatQuizProgress = (quiz: Quiz): Quiz => {
+  const record = getQuizProgressRecord(quiz);
+  if (!record) return quiz;
+
+  const totalAttempts = Number(record.totalAttempts ?? 0);
+  const bestScore = Number(record.bestScore ?? quiz.bestScore);
+  const averageScore = Number(record.averageScore ?? bestScore);
+  const lastAttempted = parseQuizDate(record.lastAttempted);
+
+  return {
+    ...quiz,
+    totalAttempts: Math.max(quiz.totalAttempts, totalAttempts),
+    bestScore: Math.max(quiz.bestScore, Number.isFinite(bestScore) ? bestScore : quiz.bestScore),
+    averageScore: Number.isFinite(averageScore) ? Math.max(quiz.averageScore, averageScore) : quiz.averageScore,
+    lastAttempted: quiz.lastAttempted ?? lastAttempted,
+  };
+};
+
 export function QuizScreen({ onNavigate }: QuizScreenProps) {
-  const chromeApi = (globalThis as typeof globalThis & { chrome?: any }).chrome;
+  const chromeApi = (globalThis as typeof globalThis & { chrome?: ChromeQuizApi }).chrome;
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedQuiz, setSelectedQuiz] = useState<Quiz | null>(null);
   const [currentQuestionIndex, setCurrentQuestionIndex] = useState(0);
@@ -69,8 +130,26 @@ export function QuizScreen({ onNavigate }: QuizScreenProps) {
   const [timeRemaining, setTimeRemaining] = useState(600);
   const [showConfetti, setShowConfetti] = useState(false);
   const attemptStartedAtRef = useRef<Date | null>(null);
+  const selectedQuizIdRef = useRef<string | null>(null);
   const quizStrictModeRef = useRef(false);
   const focusTabIdRef = useRef<number | null>(null);
+  const enableQuizStrictModeRef = useRef<() => void>(() => undefined);
+  const disableQuizStrictModeRef = useRef<() => void>(() => undefined);
+  const handleSubmitAllRef = useRef((async (allowIncomplete?: boolean) => {
+    void allowIncomplete;
+  }) as (allowIncomplete?: boolean) => Promise<void>);
+  const quizKeyboardHandlersRef = useRef<QuizKeyboardHandlers>({
+    handleAnswerSelect: (choiceIndex: number) => {
+      void choiceIndex;
+    },
+    handleNext: () => undefined,
+    handlePrevious: () => undefined,
+    handleSubmitAll: (allowIncomplete?: boolean) => {
+      void allowIncomplete;
+      return Promise.resolve();
+    },
+    handleSubmitAnswer: () => undefined,
+  });
 
   const syncStrictModeToBackground = (enabled: boolean) => {
     if (!chromeApi?.runtime?.sendMessage) return;
@@ -111,18 +190,23 @@ export function QuizScreen({ onNavigate }: QuizScreenProps) {
   };
 
   useEffect(() => {
+    enableQuizStrictModeRef.current = enableQuizStrictMode;
+    disableQuizStrictModeRef.current = disableQuizStrictMode;
+  });
+
+  useEffect(() => {
     if (!chromeApi?.tabs?.getCurrent) return;
 
-    chromeApi.tabs.getCurrent((tab: { id?: number }) => {
+    chromeApi.tabs.getCurrent((tab?: { id?: number }) => {
       if (typeof tab?.id === 'number') {
         focusTabIdRef.current = tab.id;
       }
     });
-  }, []);
+  }, [chromeApi?.tabs]);
 
   useEffect(() => {
     return () => {
-      disableQuizStrictMode();
+      disableQuizStrictModeRef.current();
     };
   }, []);
 
@@ -140,27 +224,23 @@ export function QuizScreen({ onNavigate }: QuizScreenProps) {
       const authHeaders = await getAuthHeaders();
       const res = await backendClient.get(BACKEND_ROUTES.quiz, { headers: authHeaders });
       const data = Array.isArray(res.data) ? res.data : [];
-      if (import.meta.env.DEV) {
-        // eslint-disable-next-line no-console
-        console.debug('[QuizScreen] fetchQuizzes response', { status: res.status, dataLength: data.length, rawData: res.data });
-      }
-      const mapped = data.map((q: any) => {
+      const mapped = data.map((q: Record<string, unknown>) => {
         const questionCount =
           q.total_questions ??
           q.question_count ??
           q.questions_count ??
           (Array.isArray(q.questions) ? q.questions.length : 0);
 
-        return {
+        return applyChatQuizProgress({
           id: String(q.id),
           title: deriveDisplayQuizTitle({
             rawTitle: q.title,
             fallbackTopic: q.topic ?? q.category,
             questions: q.questions,
           }),
-          description: q.description || '',
-          category: q.category || q.topic || 'General',
-          topic: q.topic || q.category || 'General',
+          description: String(q.description ?? ''),
+          category: String(q.category ?? q.topic ?? 'General'),
+          topic: String(q.topic ?? q.category ?? 'General'),
           sourceType:
             normalizeQuizSourceType(q.sourceType) ||
             normalizeQuizSourceType(q.source_type) ||
@@ -168,23 +248,23 @@ export function QuizScreen({ onNavigate }: QuizScreenProps) {
             normalizeQuizSourceType(q.origin) ||
             normalizeQuizSourceType(q.generated_from),
           difficulty: normalizeDifficulty(q.difficulty),
-          timeLimit: q.time_limit_seconds ?? undefined,
-          passingScore: q.passing_score ?? 0,
-          totalAttempts: q.total_attempts ?? 0,
-          questionCount,
-          bestScore: q.best_score ?? 0,
-          averageScore: q.average_score ?? 0,
+          timeLimit: getOptionalNumber(q.time_limit_seconds),
+          passingScore: Number(q.passing_score ?? 0),
+          totalAttempts: Number(q.total_attempts ?? 0),
+          questionCount: Number(questionCount),
+          bestScore: Number(q.best_score ?? 0),
+          averageScore: Number(q.average_score ?? 0),
           createdAt: parseQuizDate(q.created_at ?? q.createdAt),
           lastAttempted: parseQuizDate(q.last_attempted ?? q.lastAttempted),
-          tags: Array.isArray(q.tags) ? q.tags : [],
+          tags: Array.isArray(q.tags) ? q.tags.map(String) : [],
           linkedDocument: q.linked_document_id ? String(q.linked_document_id) : undefined,
           questions: [],
-        } as Quiz;
+        } as Quiz);
       });
       setQuizzes(mapped);
-    } catch (err: any) {
+    } catch (err: unknown) {
       console.error('Failed to fetch quizzes', err);
-      const status = err?.response?.status;
+      const status = getResponseStatus(err);
       if (status === 401) {
         toast.error('Unauthorized — please sign in to load quizzes');
       } else {
@@ -196,7 +276,7 @@ export function QuizScreen({ onNavigate }: QuizScreenProps) {
   };
 
   useEffect(() => {
-    void fetchQuizzes();
+    void Promise.resolve().then(fetchQuizzes);
   }, []);
 
   useEffect(() => {
@@ -233,7 +313,7 @@ export function QuizScreen({ onNavigate }: QuizScreenProps) {
               backendClient.get(`${BACKEND_ROUTES.quiz}/${pendingQuizId}`, { headers: authHeaders }),
             ]);
             const quizList = Array.isArray(quizzesResponse.data) ? quizzesResponse.data : [];
-            const quizMeta = quizList.find((quiz: any) => String(quiz.id) === String(pendingQuizId)) ?? {};
+            const quizMeta = quizList.find((quiz: Record<string, unknown>) => String(quiz.id) === String(pendingQuizId)) ?? {};
             const rawQuestions = Array.isArray(questionsResponse.data)
               ? questionsResponse.data
               : Array.isArray(questionsResponse.data?.questions)
@@ -246,7 +326,7 @@ export function QuizScreen({ onNavigate }: QuizScreenProps) {
               return;
             }
 
-            const pendingQuiz: Quiz = {
+            const pendingQuiz: Quiz = applyChatQuizProgress({
               id: String(pendingQuizId),
               title: deriveDisplayQuizTitle({
                 rawTitle: payload.title ?? quizMeta.title,
@@ -272,16 +352,18 @@ export function QuizScreen({ onNavigate }: QuizScreenProps) {
               createdAt: parseQuizDate(quizMeta.created_at ?? quizMeta.createdAt),
               tags: Array.isArray(quizMeta.tags) ? quizMeta.tags : ['chat'],
               linkedDocument: quizMeta.linked_document_id ? String(quizMeta.linked_document_id) : undefined,
-            };
+            });
 
-            setSelectedQuiz(pendingQuiz);
-            setCurrentQuestionIndex(0);
-            setShowFeedback(false);
-            setIsSubmitted(false);
-            setShowSummary(false);
-            setTimerEnabled(true);
-            startAttemptTimer();
-            enableQuizStrictMode();
+            void Promise.resolve().then(() => {
+              setSelectedQuiz(pendingQuiz);
+              setCurrentQuestionIndex(0);
+              setShowFeedback(false);
+              setIsSubmitted(false);
+              setShowSummary(false);
+              setTimerEnabled(true);
+              startAttemptTimer();
+              enableQuizStrictModeRef.current();
+            });
           } catch {
             toast.error('Could not open the saved quiz from chat history.');
           }
@@ -310,7 +392,7 @@ export function QuizScreen({ onNavigate }: QuizScreenProps) {
 
       if (questions.length === 0) return;
 
-      const pendingQuiz: Quiz = {
+      const pendingQuiz: Quiz = applyChatQuizProgress({
         id: String(payload.id ?? `chat-history-quiz-${Date.now()}`),
         title: isGenericChatQuizTitle(payload.title)
           ? toQuizHeadingFromQuestion(questions[0]?.question)
@@ -327,16 +409,18 @@ export function QuizScreen({ onNavigate }: QuizScreenProps) {
         averageScore: 0,
         createdAt: new Date(),
         tags: ['chat'],
-      };
+      });
 
-      setSelectedQuiz(pendingQuiz);
-      setCurrentQuestionIndex(0);
-      setShowFeedback(false);
-      setIsSubmitted(false);
-      setShowSummary(false);
-      setTimerEnabled(true);
-      startAttemptTimer();
-      enableQuizStrictMode();
+      void Promise.resolve().then(() => {
+        setSelectedQuiz(pendingQuiz);
+        setCurrentQuestionIndex(0);
+        setShowFeedback(false);
+        setIsSubmitted(false);
+        setShowSummary(false);
+        setTimerEnabled(true);
+        startAttemptTimer();
+        enableQuizStrictModeRef.current();
+      });
     } catch {
       toast.error('Could not open the generated quiz from chat history.');
     }
@@ -354,12 +438,20 @@ export function QuizScreen({ onNavigate }: QuizScreenProps) {
   // Initialize selected answers array when a new quiz is selected.
   useEffect(() => {
     if (selectedQuiz) {
-      setSelectedAnswers(new Array(selectedQuiz.questions.length).fill(null));
-      setSkippedAnswers(new Array(selectedQuiz.questions.length).fill(false));
-      setReviewedQuestions(new Array(selectedQuiz.questions.length).fill(false));
-      setTimeRemaining(getQuizTimeLimit(selectedQuiz));
+      if (selectedQuizIdRef.current === selectedQuiz.id) return;
+      selectedQuizIdRef.current = selectedQuiz.id;
+
+      void Promise.resolve().then(() => {
+        setSelectedAnswers(new Array(selectedQuiz.questions.length).fill(null));
+        setSkippedAnswers(new Array(selectedQuiz.questions.length).fill(false));
+        setReviewedQuestions(new Array(selectedQuiz.questions.length).fill(false));
+        setTimeRemaining(getQuizTimeLimit(selectedQuiz));
+      });
+      return;
     }
-  }, [selectedQuiz?.id]);
+
+    selectedQuizIdRef.current = null;
+  }, [selectedQuiz]);
 
   // Timer
   useEffect(() => {
@@ -369,7 +461,7 @@ export function QuizScreen({ onNavigate }: QuizScreenProps) {
       }, 1000);
       return () => clearInterval(timer);
     } else if (timeRemaining === 0 && timerEnabled) {
-      void handleSubmitAll(true);
+      void Promise.resolve().then(() => handleSubmitAllRef.current(true));
     }
   }, [timerEnabled, timeRemaining, showSummary, selectedQuiz]);
 
@@ -379,9 +471,9 @@ export function QuizScreen({ onNavigate }: QuizScreenProps) {
     return `${mins}:${secs.toString().padStart(2, '0')}`;
   };
 
-  const startAttemptTimer = () => {
+  function startAttemptTimer() {
     attemptStartedAtRef.current = new Date();
-  };
+  }
 
   const getAttemptStartedAt = () => {
     if (!attemptStartedAtRef.current) {
@@ -438,13 +530,6 @@ export function QuizScreen({ onNavigate }: QuizScreenProps) {
     newReviewedQuestions[currentQuestionIndex] = true;
     setReviewedQuestions(newReviewedQuestions);
     // Inline feedback below shows the correct answer and explanation.
-    return;
-
-    if (false) {
-      toast.success('✅ Correct!');
-    } else {
-      toast.error('❌ Incorrect. Review the explanation.');
-    }
   };
 
   const handleDontKnow = () => {
@@ -462,7 +547,7 @@ export function QuizScreen({ onNavigate }: QuizScreenProps) {
     setShowFeedback(true);
   };
 
-  const handleSubmitAll = async (allowIncomplete = false) => {
+  async function handleSubmitAll(allowIncomplete = false) {
     if (!selectedQuiz) return;
 
     const unansweredCount = selectedQuiz.questions.filter(
@@ -524,7 +609,7 @@ export function QuizScreen({ onNavigate }: QuizScreenProps) {
       setQuizzes((currentQuizzes) =>
         currentQuizzes.map((quiz) => (quiz.id === selectedQuiz.id ? updateQuizStats(quiz) : quiz))
       );
-    } catch (e) {
+    } catch {
       // Keep the result summary local if the backend is unavailable.
     }
 
@@ -532,7 +617,21 @@ export function QuizScreen({ onNavigate }: QuizScreenProps) {
       setShowConfetti(true);
       setTimeout(() => setShowConfetti(false), 3000);
     }
-  };
+  }
+
+  useEffect(() => {
+    handleSubmitAllRef.current = handleSubmitAll;
+  });
+
+  useEffect(() => {
+    quizKeyboardHandlersRef.current = {
+      handleAnswerSelect,
+      handleNext,
+      handlePrevious,
+      handleSubmitAll,
+      handleSubmitAnswer,
+    };
+  });
 
   useEffect(() => {
     if (!selectedQuiz || showSummary || showCreateDialog) return;
@@ -549,32 +648,32 @@ export function QuizScreen({ onNavigate }: QuizScreenProps) {
         !showFeedback
       ) {
         event.preventDefault();
-        handleAnswerSelect(numericChoice - 1);
+        quizKeyboardHandlersRef.current.handleAnswerSelect(numericChoice - 1);
         return;
       }
 
       if (event.key === 'Enter') {
         event.preventDefault();
         if (!showFeedback) {
-          handleSubmitAnswer();
+          quizKeyboardHandlersRef.current.handleSubmitAnswer();
         } else if (currentQuestionIndex < selectedQuiz.questions.length - 1) {
-          handleNext();
+          quizKeyboardHandlersRef.current.handleNext();
         } else {
-          void handleSubmitAll();
+          void quizKeyboardHandlersRef.current.handleSubmitAll();
         }
         return;
       }
 
       if (event.key === 'ArrowLeft') {
         event.preventDefault();
-        handlePrevious();
+        quizKeyboardHandlersRef.current.handlePrevious();
         return;
       }
 
       if (event.key === 'ArrowRight' && showFeedback) {
         event.preventDefault();
         if (currentQuestionIndex < selectedQuiz.questions.length - 1) {
-          handleNext();
+          quizKeyboardHandlersRef.current.handleNext();
         }
       }
     };
@@ -623,17 +722,9 @@ export function QuizScreen({ onNavigate }: QuizScreenProps) {
     // If this quiz doesn't include questions (list view), fetch full quiz details
     const start = async () => {
       try {
-          if (!quiz.questions || quiz.questions.length === 0) {
+        if (!quiz.questions || quiz.questions.length === 0) {
           const authHeaders = await getAuthHeaders();
-          if (import.meta.env.DEV) {
-            // eslint-disable-next-line no-console
-            console.debug('[QuizScreen] fetching quiz details', `${BACKEND_ROUTES.quiz}/${quiz.id}`, { authHeaders });
-          }
           const res = await backendClient.get(`${BACKEND_ROUTES.quiz}/${quiz.id}`, { headers: authHeaders });
-          if (import.meta.env.DEV) {
-            // eslint-disable-next-line no-console
-            console.debug('[QuizScreen] quiz details response', { status: res.status, data: res.data });
-          }
           const full = res.data;
           // Backend may return an array of questions directly for /quiz/{id}
           const questionsSource = Array.isArray(full)
@@ -682,10 +773,6 @@ export function QuizScreen({ onNavigate }: QuizScreenProps) {
             try {
               const qsUrl = `${BACKEND_ROUTES.quiz}/${quiz.id}/questions`;
               const authHeaders2 = await getAuthHeaders();
-              if (import.meta.env.DEV) {
-                // eslint-disable-next-line no-console
-                console.debug('[QuizScreen] trying fallback questions endpoint', qsUrl, { authHeaders2 });
-              }
               const qRes = await backendClient.get(qsUrl, { headers: authHeaders2 });
               const qData = Array.isArray(qRes.data) ? qRes.data : qRes.data?.questions ?? [];
               if (qData && qData.length > 0) {
@@ -693,21 +780,14 @@ export function QuizScreen({ onNavigate }: QuizScreenProps) {
               } else {
                 // try another common fallback
                 const itemsUrl = `${BACKEND_ROUTES.quiz}/${quiz.id}/items`;
-                if (import.meta.env.DEV) {
-                  // eslint-disable-next-line no-console
-                  console.debug('[QuizScreen] trying fallback items endpoint', itemsUrl);
-                }
                 const iRes = await backendClient.get(itemsUrl, { headers: authHeaders2 });
                 const iData = Array.isArray(iRes.data) ? iRes.data : iRes.data?.items ?? [];
                 if (iData && iData.length > 0) {
                   fullQuiz.questions = iData.map(mapQuizQuestion);
                 }
               }
-            } catch (fallbackErr) {
-              if (import.meta.env.DEV) {
-                // eslint-disable-next-line no-console
-                console.debug('[QuizScreen] fallback fetch failed', fallbackErr);
-              }
+            } catch {
+              // Fallback question endpoints are optional; the no-questions toast below handles failure.
             }
 
             if ((fullQuiz.questions?.length ?? 0) === 0) {
@@ -730,9 +810,9 @@ export function QuizScreen({ onNavigate }: QuizScreenProps) {
         setTimerEnabled(true);
         startAttemptTimer();
         enableQuizStrictMode();
-      } catch (err: any) {
+      } catch (err: unknown) {
         console.error('Failed to load quiz details', err);
-        const status = err?.response?.status;
+        const status = getResponseStatus(err);
         if (status === 401) {
           toast.error('Unauthorized — please sign in to view quiz details');
         } else {
@@ -817,20 +897,20 @@ export function QuizScreen({ onNavigate }: QuizScreenProps) {
           lastAttempted: parseQuizDate(created.last_attempted ?? created.lastAttempted),
           tags: Array.isArray(created.tags) ? created.tags : [],
           linkedDocument: created.linked_document_id ? String(created.linked_document_id) : undefined,
-          questions: Array.isArray(createdQuestions) ? createdQuestions.map((question: any) => mapQuizQuestion(question)) : [],
+          questions: Array.isArray(createdQuestions) ? createdQuestions.map((question: unknown) => mapQuizQuestion(question)) : [],
         };
         // open the created quiz
         handleStartQuiz(createdQuiz);
       }
-    } catch (err: any) {
+    } catch (err: unknown) {
       console.error('Create quiz failed', err);
-      const status = err?.response?.status;
+      const status = getResponseStatus(err);
       if (status !== 401) {
         try {
           const authHeaders = await getAuthHeaders();
           const quizzesResponse = await backendClient.get(BACKEND_ROUTES.quiz, { headers: authHeaders });
           const data = Array.isArray(quizzesResponse.data) ? quizzesResponse.data : [];
-          const refreshedQuizzes = data.map((q: any) => {
+          const refreshedQuizzes = data.map((q: Record<string, unknown>) => {
             const questionCount =
               q.total_questions ??
               q.question_count ??
@@ -844,9 +924,9 @@ export function QuizScreen({ onNavigate }: QuizScreenProps) {
                 fallbackTopic: q.topic ?? q.category,
                 questions: q.questions,
               }),
-              description: q.description || '',
-              category: q.category || q.topic || 'General',
-              topic: q.topic || q.category || 'General',
+              description: String(q.description ?? ''),
+              category: String(q.category ?? q.topic ?? 'General'),
+              topic: String(q.topic ?? q.category ?? 'General'),
               sourceType:
                 normalizeQuizSourceType(q.sourceType) ||
                 normalizeQuizSourceType(q.source_type) ||
@@ -854,15 +934,15 @@ export function QuizScreen({ onNavigate }: QuizScreenProps) {
                 normalizeQuizSourceType(q.origin) ||
                 normalizeQuizSourceType(q.generated_from),
               difficulty: normalizeDifficulty(q.difficulty),
-              timeLimit: q.time_limit_seconds ?? undefined,
-              passingScore: q.passing_score ?? 0,
-              totalAttempts: q.total_attempts ?? 0,
-              questionCount,
-              bestScore: q.best_score ?? 0,
-              averageScore: q.average_score ?? 0,
+              timeLimit: getOptionalNumber(q.time_limit_seconds),
+              passingScore: Number(q.passing_score ?? 0),
+              totalAttempts: Number(q.total_attempts ?? 0),
+              questionCount: Number(questionCount),
+              bestScore: Number(q.best_score ?? 0),
+              averageScore: Number(q.average_score ?? 0),
               createdAt: parseQuizDate(q.created_at ?? q.createdAt),
               lastAttempted: parseQuizDate(q.last_attempted ?? q.lastAttempted),
-              tags: Array.isArray(q.tags) ? q.tags : [],
+              tags: Array.isArray(q.tags) ? q.tags.map(String) : [],
               linkedDocument: q.linked_document_id ? String(q.linked_document_id) : undefined,
               questions: [],
             } as Quiz;
@@ -1223,13 +1303,13 @@ export function QuizScreen({ onNavigate }: QuizScreenProps) {
                       {quiz.createdAt && (
                         <div className="flex justify-between text-xs">
                           <span className="quiz-info-label">Created:</span>
-                          <span className="quiz-info-date">{quiz.createdAt.toLocaleDateString()}</span>
+                          <span className="quiz-info-date">{formatUserDate(quiz.createdAt)}</span>
                         </div>
                       )}
                       {quiz.lastAttempted && (
                         <div className="flex justify-between text-xs">
                           <span className="quiz-info-label">Last Attempted:</span>
-                          <span className="quiz-info-date">{quiz.lastAttempted.toLocaleDateString()}</span>
+                          <span className="quiz-info-date">{formatUserDate(quiz.lastAttempted)}</span>
                         </div>
                       )}
                     </div>
@@ -1401,7 +1481,7 @@ export function QuizScreen({ onNavigate }: QuizScreenProps) {
             {/* Score Ring */}
             <div className="flex items-center justify-center">
               <div className="relative w-40 h-40">
-                <svg className="w-full h-full -rotate-90">
+                <svg className="w-full h-full -rotate-90 overflow-visible" viewBox="0 0 160 160">
                   <circle
                     cx="80"
                     cy="80"

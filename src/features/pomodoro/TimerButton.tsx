@@ -1,7 +1,7 @@
 import { motion } from 'motion/react';
 import { Clock } from 'lucide-react';
 import { Button } from '../../components/ui/button';
-import { usePomodoro } from '../../context/PomodoroContext';
+import { usePomodoro } from '../../hooks/usePomodoro';
 
 interface TimerButtonProps {
   onClick: () => void;

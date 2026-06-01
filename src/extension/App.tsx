@@ -13,10 +13,20 @@ import { Footer } from '../components/layout/Footer';
 import { ThemeToggle } from '../components/shared/ThemeToggle';
 import { Toaster } from '../components/ui/sonner';
 import { FocusProvider } from '../context/FocusContext';
-import { PomodoroProvider, usePomodoro } from '../context/PomodoroContext';
+import { PomodoroProvider } from '../context/PomodoroContext';
+import { usePomodoro } from '../hooks/usePomodoro';
 import { clearAccessToken } from '../utils/backendClient';
 import { FRONTEND_ROUTES, buildFrontendUrl } from '../config/frontend';
 import { ProtectedRoute } from './ProtectedRoute';
+
+type ChromeRuntimeApi = {
+  runtime?: {
+    sendMessage?: (message: unknown, callback?: () => void) => void;
+  };
+  tabs?: {
+    getCurrent?: (callback: (tab?: { id?: number }) => void) => void;
+  };
+};
 
 const PAGE_TO_PATH: Record<string, string> = {
   home: '/',
@@ -79,20 +89,18 @@ function AppContent() {
   const lastSyncedPomodoroPhaseRef = useRef<string | null>(null);
   const lastBreakEndsAtRef = useRef<number | null>(null);
 
-  const [theme, setTheme] = useState<'light' | 'dark'>('dark');
+  const [theme, setTheme] = useState<'light' | 'dark'>(() => {
+    const savedTheme = localStorage.getItem('focusspark-theme');
+    if (savedTheme === 'light' || savedTheme === 'dark') return savedTheme;
+    return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+  });
 
   // Initialize theme from localStorage or system preference
   useEffect(() => {
     // Prevent flash of unstyled content
     document.documentElement.classList.add('preload');
 
-    const savedTheme = localStorage.getItem('focusspark-theme') as 'light' | 'dark' | null;
-    const systemPrefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
-    const initialTheme = savedTheme || (systemPrefersDark ? 'dark' : 'light');
-
-    setTheme(initialTheme);
-
-    if (initialTheme === 'dark') {
+    if (theme === 'dark') {
       document.documentElement.classList.add('dark');
     } else {
       document.documentElement.classList.remove('dark');
@@ -102,7 +110,7 @@ function AppContent() {
     setTimeout(() => {
       document.documentElement.classList.remove('preload');
     }, 100);
-  }, []);
+  }, [theme]);
 
   // Toggle theme function
   const toggleTheme = () => {
@@ -132,14 +140,15 @@ function AppContent() {
     const previousPhase = lastSyncedPomodoroPhaseRef.current;
     if (previousPhase === phase) return;
 
-    const chromeApi = (globalThis as typeof globalThis & { chrome?: any }).chrome;
-    if (!chromeApi?.runtime?.sendMessage) return;
+    const chromeApi = (globalThis as typeof globalThis & { chrome?: ChromeRuntimeApi }).chrome;
+    const sendRuntimeMessage = chromeApi?.runtime?.sendMessage;
+    if (!sendRuntimeMessage) return;
 
     const sendPomodoroState = (focusTabId: number | null) => {
       const breakEndsAt = phase === 'break' ? Date.now() + timeRemaining * 1000 : null;
 
       if (previousPhase === 'break' && phase === 'idle') {
-        chromeApi.runtime.sendMessage(
+        sendRuntimeMessage(
           {
             type: 'POMODORO_BREAK_COMPLETED',
             focusTabId,
@@ -151,7 +160,7 @@ function AppContent() {
         );
       }
 
-      chromeApi.runtime.sendMessage(
+      sendRuntimeMessage(
         {
           type: 'POMODORO_STATE_CHANGED',
           phase,
@@ -168,7 +177,7 @@ function AppContent() {
     };
 
     if (chromeApi?.tabs?.getCurrent) {
-      chromeApi.tabs.getCurrent((tab: { id?: number }) => {
+      chromeApi.tabs.getCurrent((tab?: { id?: number }) => {
         sendPomodoroState(typeof tab?.id === 'number' ? tab.id : null);
       });
       return;

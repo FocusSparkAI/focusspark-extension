@@ -1,7 +1,8 @@
+import { useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { Clock, X } from 'lucide-react';
 import { Button } from '../../components/ui/button';
-import { usePomodoro } from '../../context/PomodoroContext';
+import { usePomodoro } from '../../hooks/usePomodoro';
 
 interface TimerDropdownProps {
   isOpen: boolean;
@@ -17,6 +18,9 @@ const readSavedMinutes = (key: string, fallback: number, min: number, max: numbe
 
 export function TimerDropdown({ isOpen, onClose }: TimerDropdownProps) {
   const { startSession } = usePomodoro();
+  const closeButtonRef = useRef<HTMLButtonElement | null>(null);
+  const onCloseRef = useRef(onClose);
+  const previouslyFocusedElementRef = useRef<HTMLElement | null>(null);
   const focusMinutes = readSavedMinutes('focusspark-extension-focus-minutes', 25, 5, 120);
   const breakMinutes = readSavedMinutes('focusspark-extension-break-minutes', 5, 1, 60);
 
@@ -24,6 +28,36 @@ export function TimerDropdown({ isOpen, onClose }: TimerDropdownProps) {
     startSession('custom', { focusMinutes, breakMinutes });
     onClose();
   };
+
+  useEffect(() => {
+    onCloseRef.current = onClose;
+  }, [onClose]);
+
+  useEffect(() => {
+    if (!isOpen) return;
+
+    previouslyFocusedElementRef.current = document.activeElement instanceof HTMLElement
+      ? document.activeElement
+      : null;
+
+    const focusTimer = window.setTimeout(() => {
+      closeButtonRef.current?.focus();
+    }, 0);
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        event.preventDefault();
+        onCloseRef.current();
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => {
+      window.clearTimeout(focusTimer);
+      window.removeEventListener('keydown', handleKeyDown);
+      previouslyFocusedElementRef.current?.focus();
+    };
+  }, [isOpen]);
 
   return (
     <AnimatePresence>
@@ -35,6 +69,7 @@ export function TimerDropdown({ isOpen, onClose }: TimerDropdownProps) {
             exit={{ opacity: 0 }}
             className="fixed inset-0 bg-black/20 z-40 backdrop-blur-sm"
             onClick={onClose}
+            aria-hidden="true"
           />
 
           <motion.div
@@ -43,19 +78,24 @@ export function TimerDropdown({ isOpen, onClose }: TimerDropdownProps) {
             exit={{ opacity: 0, scale: 0.95, y: -10 }}
             transition={{ duration: 0.2, ease: 'easeOut' }}
             className="fixed top-20 right-4 sm:right-8 md:right-12 lg:right-16 z-50 w-80 sm:w-96"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="timer-dropdown-title"
           >
             <div className="bg-white dark:bg-[#1C1F2A] border border-border rounded-2xl shadow-2xl overflow-hidden backdrop-blur-xl">
               <div className="p-4 border-b border-border bg-gradient-to-r from-purple-500/10 to-blue-500/10">
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-2">
                     <Clock className="w-5 h-5 text-purple-400" />
-                    <h3 className="font-medium">Start Focus Session</h3>
+                    <h3 id="timer-dropdown-title" className="font-medium">Start Focus Session</h3>
                   </div>
                   <Button
+                    ref={closeButtonRef}
                     variant="ghost"
                     size="icon"
                     onClick={onClose}
                     className="hover:bg-accent"
+                    aria-label="Close timer dialog"
                   >
                     <X className="w-4 h-4" />
                   </Button>

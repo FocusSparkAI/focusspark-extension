@@ -30,6 +30,7 @@ export interface Quiz {
 }
 
 export type QuizSourceType = 'Chat' | 'Topic';
+type RawRecord = Record<string, unknown>;
 
 export const CHAT_HISTORY_QUIZ_KEY = 'focusspark-chat-history-quiz';
 
@@ -181,7 +182,7 @@ const normalizeCorrectAnswerIndex = (
   return 0;
 };
 
-export const normalizeCorrectAnswer = (question: any, choices: string[]) => {
+export const normalizeCorrectAnswer = (question: RawRecord, choices: string[]) => {
   const candidateKeys = [
     'correct_answer_index',
     'correctAnswer',
@@ -218,32 +219,25 @@ export const normalizeCorrectAnswer = (question: any, choices: string[]) => {
   return 0;
 };
 
-export const mapQuizQuestion = (question: any): QuizQuestion => {
-  const choices = question.choices || question.options || [];
+export const mapQuizQuestion = (value: unknown): QuizQuestion => {
+  const question = (value ?? {}) as RawRecord;
+  const choices = Array.isArray(question.choices)
+    ? question.choices.map(String)
+    : Array.isArray(question.options)
+      ? question.options.map(String)
+      : [];
   const mappedQuestion = {
     id: String(question.id),
-    question: question.question,
+    question: String(question.question ?? ''),
     choices,
     correctAnswer: normalizeCorrectAnswer(question, choices),
-    explanation: question.explanation || '',
-    relatedFlashcardId: question.related_flashcard_id ?? question.relatedFlashcardId,
-    topic: question.topic || '',
+    explanation: String(question.explanation ?? ''),
+    relatedFlashcardId:
+      question.related_flashcard_id ?? question.relatedFlashcardId
+        ? String(question.related_flashcard_id ?? question.relatedFlashcardId)
+        : undefined,
+    topic: String(question.topic ?? ''),
   };
-
-  if (import.meta.env.DEV) {
-    // eslint-disable-next-line no-console
-    console.debug('[QuizScreen] mapped question answer', {
-      id: mappedQuestion.id,
-      rawCorrectAnswer: question.correct_answer,
-      rawCorrectAnswerIndex: question.correct_answer_index,
-      rawCorrectOption: question.correct_option ?? question.correctOption,
-      rawCorrectChoice: question.correct_choice ?? question.correctChoice,
-      rawAnswerIndex: question.answer_index ?? question.answerIndex,
-      rawAnswer: question.answer,
-      mappedCorrectAnswer: mappedQuestion.correctAnswer,
-      choices,
-    });
-  }
 
   return mappedQuestion;
 };

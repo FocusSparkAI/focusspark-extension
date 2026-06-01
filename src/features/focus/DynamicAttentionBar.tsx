@@ -1,8 +1,6 @@
 import { motion, AnimatePresence } from 'motion/react';
-import { UserCircle2, AlertCircle, Smile, Meh, Frown } from 'lucide-react';
-import { useFocus } from '../../context/FocusContext';
-import { usePomodoro } from '../../context/PomodoroContext';
-import { useEffect, useState } from 'react';
+import { UserCircle2, AlertCircle, Smile, Meh, Frown, type LucideIcon } from 'lucide-react';
+import { useFocus } from '../../hooks/useFocus';
 
 interface DynamicAttentionBarProps {
   className?: string;
@@ -11,7 +9,7 @@ interface DynamicAttentionBarProps {
 type StateType = {
   type: 'happy' | 'tired' | 'sad' | 'neutral' | 'focused' | 'idle' | 'attention';
   label: string;
-  icon: any;
+  icon: LucideIcon;
   color: string;
   darkColor: string;
   borderColor: string;
@@ -20,20 +18,11 @@ type StateType = {
 
 export function DynamicAttentionBar({ className = '' }: DynamicAttentionBarProps) {
   const { isDetectionEnabled, isFocused, focusScore, emotionalState } = useFocus();
-  const { phase } = usePomodoro();
-  const [displayState, setDisplayState] = useState<StateType | null>(null);
 
-  // Check if Pomodoro timer is running
-  const isPomodoroRunning = phase !== 'idle';
-
-  // Update display state with smooth transitions whenever dependencies change
-  useEffect(() => {
-    let newState: StateType;
-
+  const displayState: StateType = (() => {
     if (!isDetectionEnabled) {
-      // When camera is disabled, show emotional state
       if (emotionalState === 'happy') {
-        newState = {
+        return {
           type: 'happy',
           label: 'Focused',
           icon: Smile,
@@ -42,8 +31,10 @@ export function DynamicAttentionBar({ className = '' }: DynamicAttentionBarProps
           borderColor: 'border-blue-500/45 dark:border-blue-300/40',
           glowColor: 'rgba(37, 99, 235, 0.38)',
         };
-      } else if (emotionalState === 'tired') {
-        newState = {
+      }
+
+      if (emotionalState === 'tired') {
+        return {
           type: 'tired',
           label: 'Tired',
           icon: Meh,
@@ -52,8 +43,10 @@ export function DynamicAttentionBar({ className = '' }: DynamicAttentionBarProps
           borderColor: 'border-amber-500/45 dark:border-amber-300/45',
           glowColor: 'rgba(245, 158, 11, 0.42)',
         };
-      } else if (emotionalState === 'sad') {
-        newState = {
+      }
+
+      if (emotionalState === 'sad') {
+        return {
           type: 'sad',
           label: 'Distracted',
           icon: Frown,
@@ -62,57 +55,53 @@ export function DynamicAttentionBar({ className = '' }: DynamicAttentionBarProps
           borderColor: 'border-rose-500/45 dark:border-rose-300/45',
           glowColor: 'rgba(244, 63, 94, 0.42)',
         };
-      } else {
-        // Default to neutral
-        newState = {
-          type: 'neutral',
-          label: 'Neutral',
-          icon: Meh,
-          color: '#475569',
-          darkColor: '#CBD5E1',
-          borderColor: 'border-slate-400/45 dark:border-slate-300/35',
-          glowColor: 'rgba(148, 163, 184, 0.35)',
-        };
       }
-    } else {
-      // When detection is enabled, use camera-based states
-      if (isFocused && focusScore >= 70) {
-        newState = {
-          type: 'focused',
-          label: 'Focused',
-          icon: UserCircle2,
-          color: '#2563EB',
-          darkColor: '#93C5FD',
-          borderColor: 'border-blue-500/45 dark:border-blue-300/40',
-          glowColor: 'rgba(37, 99, 235, 0.38)',
-        };
-      } else if (focusScore >= 40) {
-        newState = {
-          type: 'idle',
-          label: 'Idle',
-          icon: UserCircle2,
-          color: '#64748B',
-          darkColor: '#CBD5E1',
-          borderColor: 'border-gray-500/30',
-          glowColor: 'rgba(156, 163, 175, 0.3)',
-        };
-      } else {
-        newState = {
-          type: 'attention',
-          label: 'Distracted',
-          icon: AlertCircle,
-          color: '#E11D48',
-          darkColor: '#FDA4AF',
-          borderColor: 'border-rose-500/45 dark:border-rose-300/45',
-          glowColor: 'rgba(244, 63, 94, 0.42)',
-        };
-      }
+
+      return {
+        type: 'neutral',
+        label: 'Neutral',
+        icon: Meh,
+        color: '#475569',
+        darkColor: '#CBD5E1',
+        borderColor: 'border-slate-400/45 dark:border-slate-300/35',
+        glowColor: 'rgba(148, 163, 184, 0.35)',
+      };
     }
 
-    setDisplayState(newState);
-  }, [isDetectionEnabled, isFocused, focusScore, emotionalState, isPomodoroRunning]);
+    if (isFocused && focusScore >= 70) {
+      return {
+        type: 'focused',
+        label: 'Focused',
+        icon: UserCircle2,
+        color: '#2563EB',
+        darkColor: '#93C5FD',
+        borderColor: 'border-blue-500/45 dark:border-blue-300/40',
+        glowColor: 'rgba(37, 99, 235, 0.38)',
+      };
+    }
 
-  if (!displayState) return null;
+    if (focusScore >= 40) {
+      return {
+        type: 'idle',
+        label: 'Idle',
+        icon: UserCircle2,
+        color: '#64748B',
+        darkColor: '#CBD5E1',
+        borderColor: 'border-gray-500/30',
+        glowColor: 'rgba(156, 163, 175, 0.3)',
+      };
+    }
+
+    return {
+      type: 'attention',
+      label: 'Distracted',
+      icon: AlertCircle,
+      color: '#E11D48',
+      darkColor: '#FDA4AF',
+      borderColor: 'border-rose-500/45 dark:border-rose-300/45',
+      glowColor: 'rgba(244, 63, 94, 0.42)',
+    };
+  })();
 
   const state = displayState;
   const Icon = state.icon;

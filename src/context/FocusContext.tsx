@@ -1,34 +1,9 @@
-import React, { createContext, useContext, useState, useEffect } from 'react';
-
-interface FocusContextType {
-  isFocused: boolean;
-  setIsFocused: (value: boolean) => void;
-  isDetectionEnabled: boolean;
-  setIsDetectionEnabled: (value: boolean) => void;
-  focusScore: number;
-  setFocusScore: (value: number) => void;
-  totalFocusedMinutes: number;
-  addFocusedTime: (minutes: number) => void;
-  emotionalState: 'happy' | 'tired' | 'neutral' | 'sad';
-  setEmotionalState: (value: 'happy' | 'tired' | 'neutral' | 'sad') => void;
-}
-
-const FocusContext = createContext<FocusContextType>({
-  isFocused: false,
-  setIsFocused: () => {},
-  isDetectionEnabled: false,
-  setIsDetectionEnabled: () => {},
-  focusScore: 0,
-  setFocusScore: () => {},
-  totalFocusedMinutes: 0,
-  addFocusedTime: () => {},
-  emotionalState: 'neutral',
-  setEmotionalState: () => {},
-});
+import React, { useState } from 'react';
+import { FocusContext, type EmotionalState } from './focusContextValue';
 
 export const FocusProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [isFocused, setIsFocused] = useState(false);
-  const [isDetectionEnabled, setIsDetectionEnabled] = useState(() => {
+  const [isDetectionEnabled, setDetectionEnabledState] = useState(() => {
     const saved = localStorage.getItem('focusspark-camera-detection');
     return saved === 'true';
   });
@@ -37,7 +12,17 @@ export const FocusProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     const saved = localStorage.getItem('focusspark-total-focus-time');
     return saved ? parseInt(saved, 10) : 0;
   });
-  const [emotionalState, setEmotionalState] = useState<'happy' | 'tired' | 'neutral' | 'sad'>('neutral');
+  const [emotionalState, setEmotionalState] = useState<EmotionalState>('neutral');
+
+  const setIsDetectionEnabled = (value: boolean) => {
+    localStorage.setItem('focusspark-camera-detection', value.toString());
+    setDetectionEnabledState(value);
+
+    if (!value) {
+      setIsFocused(false);
+      setFocusScore(50);
+    }
+  };
 
   const addFocusedTime = (minutes: number) => {
     setTotalFocusedMinutes((prev) => {
@@ -46,17 +31,6 @@ export const FocusProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       return newTotal;
     });
   };
-
-  // Save detection enabled state and reset focus state when disabled
-  useEffect(() => {
-    localStorage.setItem('focusspark-camera-detection', isDetectionEnabled.toString());
-    
-    // Reset focus state when detection is disabled to prevent stuck states
-    if (!isDetectionEnabled) {
-      setIsFocused(false);
-      setFocusScore(50); // Reset to idle state
-    }
-  }, [isDetectionEnabled]);
 
   return (
     <FocusContext.Provider
@@ -77,5 +51,3 @@ export const FocusProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     </FocusContext.Provider>
   );
 };
-
-export const useFocus = () => useContext(FocusContext);
