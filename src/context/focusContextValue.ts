@@ -6,7 +6,7 @@ export interface FocusContextType {
   isFocused: boolean;
   setIsFocused: (value: boolean) => void;
   isDetectionEnabled: boolean;
-  setIsDetectionEnabled: (value: boolean) => void;
+  setIsDetectionEnabled: (value: boolean, options?: { persist?: boolean }) => void;
   focusScore: number;
   setFocusScore: (value: number) => void;
   totalFocusedMinutes: number;

@@ -23,7 +23,9 @@ export interface PomodoroContextType {
   timeRemaining: number;
   totalTime: number;
   progress: number;
+  sessionDistractionCount: number;
   sessions: PomodoroSession[];
+  setSessionDistractionCount: (count: number) => void;
   startSession: (type: PomodoroSessionType, customTimings?: { focusMinutes: number; breakMinutes: number }) => void;
   pauseSession: () => void;
   resumeSession: () => void;

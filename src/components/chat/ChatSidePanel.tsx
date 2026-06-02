@@ -90,9 +90,8 @@ function UploadedDocuments({ uploadedDocs }: { uploadedDocs: UploadedDocument[] 
 function StrictModeCard({
   isStrictMode,
   distractionCount,
-  focusDriftCount,
   onToggleStrictMode,
-}: Pick<ChatSidePanelProps, 'isStrictMode' | 'distractionCount' | 'focusDriftCount' | 'onToggleStrictMode'>) {
+}: Pick<ChatSidePanelProps, 'isStrictMode' | 'distractionCount' | 'onToggleStrictMode'>) {
   return (
     <Card className={`transition-all duration-300 ${isStrictMode ? 'border-amber-500/40 bg-amber-500/5' : 'border-border'}`}>
       <CardHeader className="pb-3">
@@ -111,7 +110,6 @@ function StrictModeCard({
             : 'Enable to block distractions and enforce deep focus during your session.'}
         </p>
         {isStrictMode && <p className="text-xs text-amber-400">Tab distractions blocked: {distractionCount}</p>}
-        <p className="text-xs text-secondary">Focus drifts detected: {focusDriftCount}</p>
         <Button
           className={`w-full h-10 gap-2 font-medium transition-all ${isStrictMode
             ? 'bg-gradient-to-r from-amber-500/20 to-red-500/20 border-amber-500/40 hover:from-amber-500/30 hover:to-red-500/30 text-amber-400'
@@ -187,8 +185,9 @@ function SessionSummary({
   quizStats,
   cardsToReview,
   focusScore,
+  focusDriftCount,
   isFocusTrackingEnabled,
-}: Pick<ChatSidePanelProps, 'flashcardStats' | 'quizStats' | 'cardsToReview' | 'focusScore' | 'isFocusTrackingEnabled'>) {
+}: Pick<ChatSidePanelProps, 'flashcardStats' | 'quizStats' | 'cardsToReview' | 'focusScore' | 'focusDriftCount' | 'isFocusTrackingEnabled'>) {
   return (
     <Card>
       <CardHeader>
@@ -223,6 +222,12 @@ function SessionSummary({
           <span className="text-secondary">Current Focus:</span>
           <span className={isFocusTrackingEnabled ? 'gradient-text' : 'text-secondary'}>
             {isFocusTrackingEnabled ? `${focusScore}%` : 'Not tracking'}
+          </span>
+        </div>
+        <div className="flex justify-between text-sm">
+          <span className="text-secondary">Camera Focus Drifts:</span>
+          <span className={isFocusTrackingEnabled ? 'text-amber-400' : 'text-secondary'}>
+            {isFocusTrackingEnabled ? focusDriftCount : 'Not tracking'}
           </span>
         </div>
       </CardContent>
@@ -289,6 +294,7 @@ export function ChatSidePanel({
               quizStats={quizStats}
               cardsToReview={cardsToReview}
               focusScore={focusScore}
+              focusDriftCount={focusDriftCount}
               isFocusTrackingEnabled={isFocusTrackingEnabled}
             />
           </motion.div>
@@ -308,7 +314,6 @@ export function ChatSidePanel({
             <StrictModeCard
               isStrictMode={isStrictMode}
               distractionCount={distractionCount}
-              focusDriftCount={focusDriftCount}
               onToggleStrictMode={onToggleStrictMode}
             />
             <QuickActions
@@ -323,6 +328,7 @@ export function ChatSidePanel({
               quizStats={quizStats}
               cardsToReview={cardsToReview}
               focusScore={focusScore}
+              focusDriftCount={focusDriftCount}
               isFocusTrackingEnabled={isFocusTrackingEnabled}
             />
 

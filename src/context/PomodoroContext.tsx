@@ -1,5 +1,7 @@
 import { useCallback, useState, useEffect, useRef, type ReactNode } from 'react';
 import { toast } from 'sonner';
+import { BACKEND_ROUTES } from '../config/backend';
+import backendClient, { getAuthHeaders } from '../utils/backendClient';
 import {
   PomodoroContext,
   type PomodoroPhase,
@@ -18,6 +20,8 @@ type StoredPomodoroSession = {
   timeRemaining: number;
   totalTime: number;
   endAt: number | null;
+  startedAt?: string | null;
+  sessionDistractionCount?: number;
 };
 
 function readStoredPomodoroSession(): StoredPomodoroSession | null {
@@ -51,6 +55,12 @@ export function PomodoroProvider({ children }: { children: ReactNode }) {
   const [totalTime, setTotalTime] = useState(initialStoredSession?.totalTime ?? 0);
   const [sessions, setSessions] = useState<PomodoroSession[]>([]);
   const [currentSessionId, setCurrentSessionId] = useState<string | null>(null);
+  const [activeStudyStartedAt, setActiveStudyStartedAt] = useState<Date | null>(
+    initialStoredSession?.startedAt ? new Date(initialStoredSession.startedAt) : null,
+  );
+  const [sessionDistractionCount, setSessionDistractionCountState] = useState(
+    initialStoredSession?.sessionDistractionCount ?? 0,
+  );
   
   const milestoneTrackingRef = useRef({
     fifteenMinutes: false,
@@ -58,6 +68,20 @@ export function PomodoroProvider({ children }: { children: ReactNode }) {
   });
   
   const intervalRef = useRef<number | null>(null);
+  const activeStudyStartedAtRef = useRef<Date | null>(
+    initialStoredSession?.startedAt ? new Date(initialStoredSession.startedAt) : null,
+  );
+  const sessionDistractionCountRef = useRef(initialStoredSession?.sessionDistractionCount ?? 0);
+
+  useEffect(() => {
+    activeStudyStartedAtRef.current = activeStudyStartedAt;
+  }, [activeStudyStartedAt]);
+
+  const setSessionDistractionCount = useCallback((count: number) => {
+    const nextCount = Math.max(0, Math.floor(count));
+    sessionDistractionCountRef.current = nextCount;
+    setSessionDistractionCountState(nextCount);
+  }, []);
 
   useEffect(() => {
     if (phase === 'idle') {
@@ -74,10 +98,12 @@ export function PomodoroProvider({ children }: { children: ReactNode }) {
       timeRemaining,
       totalTime,
       endAt: isActive ? Date.now() + timeRemaining * 1000 : null,
+      startedAt: activeStudyStartedAt?.toISOString() ?? null,
+      sessionDistractionCount,
     };
 
     localStorage.setItem(POMODORO_STORAGE_KEY, JSON.stringify(stored));
-  }, [phase, isActive, sessionType, focusMinutes, breakMinutes, timeRemaining, totalTime]);
+  }, [phase, isActive, sessionType, focusMinutes, breakMinutes, timeRemaining, totalTime, activeStudyStartedAt, sessionDistractionCount]);
 
   // Milestone notifications
   useEffect(() => {
@@ -104,6 +130,50 @@ export function PomodoroProvider({ children }: { children: ReactNode }) {
     }
   }, [isActive, phase, timeRemaining, totalTime]);
 
+  const saveCompletedBackendStudySession = useCallback(async (
+    plannedDurationMinutes: number,
+    actualDurationMinutes: number,
+    startedAt: Date,
+  ) => {
+    try {
+      const headers = await getAuthHeaders();
+      const response = await backendClient.post(
+        BACKEND_ROUTES.studySessions,
+        {
+          session_type: 'work',
+          planned_duration_minutes: plannedDurationMinutes,
+          started_at: startedAt.toISOString(),
+        },
+        { headers },
+      );
+      const sessionId = Number(response.data?.id);
+      if (!Number.isFinite(sessionId)) {
+        return;
+      }
+
+      await backendClient.patch(
+        BACKEND_ROUTES.studySessionComplete.replace('{session_id}', String(sessionId)),
+        {
+          ended_at: new Date().toISOString(),
+          actual_duration_minutes: Math.max(0, actualDurationMinutes),
+          distraction_count: sessionDistractionCountRef.current,
+        },
+        { headers },
+      );
+    } catch {
+      // Saving should not interrupt the user's timer flow.
+    }
+  }, []);
+
+  const completeBackendStudySession = useCallback((actualDurationMinutes: number) => {
+    const startedAt = activeStudyStartedAtRef.current;
+    if (!startedAt) return;
+
+    activeStudyStartedAtRef.current = null;
+    setActiveStudyStartedAt(null);
+    void saveCompletedBackendStudySession(focusMinutes, actualDurationMinutes, startedAt);
+  }, [focusMinutes, saveCompletedBackendStudySession]);
+
   const startSession = useCallback((type: PomodoroSessionType, customTimings?: { focusMinutes: number; breakMinutes: number }) => {
     const nextFocusMinutes =
       type === 'custom' && customTimings
@@ -128,13 +198,17 @@ export function PomodoroProvider({ children }: { children: ReactNode }) {
     setIsActive(true);
     milestoneTrackingRef.current = { fifteenMinutes: false, fiveMinutes: false };
     
-    // Create new session record
+    const startedAt = new Date();
+    setActiveStudyStartedAt(startedAt);
+    activeStudyStartedAtRef.current = startedAt;
+    setSessionDistractionCount(0);
+
     const newSession: PomodoroSession = {
       id: Date.now().toString(),
       type,
       focusMinutes: nextFocusMinutes,
       breakMinutes: nextBreakMinutes,
-      startTime: new Date(),
+      startTime: startedAt,
       completed: false,
     };
     
@@ -147,7 +221,7 @@ export function PomodoroProvider({ children }: { children: ReactNode }) {
       duration: 3000,
       },
     );
-  }, []);
+  }, [setSessionDistractionCount]);
 
   const pauseSession = () => {
     setIsActive(false);
@@ -166,6 +240,8 @@ export function PomodoroProvider({ children }: { children: ReactNode }) {
     setPhase('idle');
     setTimeRemaining(0);
     setTotalTime(0);
+    setActiveStudyStartedAt(null);
+    activeStudyStartedAtRef.current = null;
     
     // Mark session as cancelled
     if (currentSessionId) {
@@ -177,11 +253,14 @@ export function PomodoroProvider({ children }: { children: ReactNode }) {
     }
     
     setCurrentSessionId(null);
+    setSessionDistractionCount(0);
     toast.info('Session cancelled', { duration: 2000 });
   };
 
   const completeEarly = () => {
     setIsActive(false);
+    const actualDurationMinutes = Math.max(0, Math.ceil((totalTime - timeRemaining) / 60));
+    void completeBackendStudySession(actualDurationMinutes);
     
     // Mark session as completed early
     if (currentSessionId) {
@@ -225,6 +304,7 @@ export function PomodoroProvider({ children }: { children: ReactNode }) {
           )
         );
       }
+      void completeBackendStudySession(focusMinutes);
 
       toast.success('Session complete. Start break?', {
         duration: 8000,
@@ -248,7 +328,7 @@ export function PomodoroProvider({ children }: { children: ReactNode }) {
         },
       });
     }
-  }, [currentSessionId, phase, startBreak, startSession]);
+  }, [completeBackendStudySession, currentSessionId, focusMinutes, phase, startBreak, startSession]);
 
   // Timer countdown effect
   useEffect(() => {
@@ -280,6 +360,9 @@ export function PomodoroProvider({ children }: { children: ReactNode }) {
     setTimeRemaining(0);
     setTotalTime(0);
     setCurrentSessionId(null);
+    setSessionDistractionCount(0);
+    setActiveStudyStartedAt(null);
+    activeStudyStartedAtRef.current = null;
     
     toast.info('Break skipped', { duration: 2000 });
   };
@@ -290,6 +373,9 @@ export function PomodoroProvider({ children }: { children: ReactNode }) {
     setTimeRemaining(0);
     setTotalTime(0);
     setCurrentSessionId(null);
+    setActiveStudyStartedAt(null);
+    activeStudyStartedAtRef.current = null;
+    setSessionDistractionCount(0);
     
     toast.success('Session ended', { duration: 2000 });
   };
@@ -307,7 +393,9 @@ export function PomodoroProvider({ children }: { children: ReactNode }) {
         timeRemaining,
         totalTime,
         progress,
+        sessionDistractionCount,
         sessions,
+        setSessionDistractionCount,
         startSession,
         pauseSession,
         resumeSession,

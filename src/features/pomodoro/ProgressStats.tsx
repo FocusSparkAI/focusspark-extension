@@ -135,8 +135,8 @@ export function ProgressStats({ onNavigate }: ProgressStatsProps) {
                 </linearGradient>
               </defs>
             </svg>
-            <div className="absolute inset-0 grid place-items-center text-center">
-              <div className="leading-none">
+            <div className="absolute left-1/2 top-1/2 flex -translate-x-1/2 -translate-y-1/2 items-center justify-center text-center">
+              <div className="flex flex-col items-center justify-center leading-none">
                 <span className="block text-2xl font-semibold leading-none">{weeklyProgress}%</span>
                 <span className="mt-2 block text-xs leading-none text-secondary">{weeklyHoursLabel}</span>
               </div>

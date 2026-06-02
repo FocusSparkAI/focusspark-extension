@@ -26,7 +26,7 @@ import { BACKEND_BASE_URL, BACKEND_ROUTES } from '../../config/backend';
 import { FRONTEND_ROUTES, buildFrontendUrl } from '../../config/frontend';
 import backendClient, { getAuthHeaders } from '../../utils/backendClient';
 import { playSoundForNewUnreadNotifications, unlockNotificationSound } from '../../utils/notificationSound';
-import { formatUserDate, setUserTimeZone } from '../../utils/timezone';
+import { formatUserDate, parseBackendDate, setUserTimeZone } from '../../utils/timezone';
 
 interface DashboardNavbarProps {
   onLogout: () => void | Promise<void>;
@@ -48,7 +48,7 @@ type ChromeTabsApi = {
 };
 
 function formatNotificationTime(value: string) {
-  const createdAt = new Date(value).getTime();
+  const createdAt = parseBackendDate(value).getTime();
   if (!Number.isFinite(createdAt)) return '';
 
   const diffSeconds = Math.max(0, Math.floor((Date.now() - createdAt) / 1000));

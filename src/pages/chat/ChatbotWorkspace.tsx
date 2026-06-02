@@ -101,7 +101,7 @@ const getProgressKeys = (message: Pick<Message, 'artifactId' | 'artifactTitle' |
 export function ChatbotWorkspace({ onNavigate }: ChatbotWorkspaceProps = {}) {
   const chromeApi = (globalThis as typeof globalThis & { chrome?: ChromeWorkspaceApi }).chrome;
   const { setIsFocused, isDetectionEnabled, setIsDetectionEnabled, focusScore: contextFocusScore, setFocusScore: setContextFocusScore, setEmotionalState } = useFocus();
-  const { phase } = usePomodoro();
+  const { phase, setSessionDistractionCount } = usePomodoro();
   const {
     messages,
     setMessages,
@@ -231,12 +231,33 @@ export function ChatbotWorkspace({ onNavigate }: ChatbotWorkspaceProps = {}) {
   const warnCooldownRef = useRef(0);
   const tabSwitchWarnCooldownRef = useRef(0);
   const prevFocusedRef = useRef(true);
+  const strictDistractionCountRef = useRef(0);
+  const pomodoroDistractionBaseRef = useRef(0);
+  const previousPomodoroPhaseRef = useRef(phase);
+  const strictModeBeforePomodoroRef = useRef(false);
+  const autoStrictModeActiveRef = useRef(false);
+  const strictModeManualOverrideRef = useRef(false);
   const [isStrictMode, setIsStrictMode] = useState(() => {
     return localStorage.getItem('focusspark-strict-mode') === 'true';
   });
   const [distractionCount, setDistractionCount] = useState(0);
   const focusTabIdRef = useRef<number | null>(null);
+  const detectionEnabledRef = useRef(isDetectionEnabled);
   const websocketUrl = buildBackendWsUrl(BACKEND_ROUTES.ws);
+
+  useEffect(() => {
+    detectionEnabledRef.current = isDetectionEnabled;
+  }, [isDetectionEnabled]);
+
+  useEffect(() => {
+    if (phase === 'focus') {
+      pomodoroDistractionBaseRef.current = strictDistractionCountRef.current;
+    }
+
+    if (phase === 'idle') {
+      setSessionDistractionCount(0);
+    }
+  }, [phase, setSessionDistractionCount]);
 
   useEffect(() => {
     let cancelled = false;
@@ -425,9 +446,14 @@ export function ChatbotWorkspace({ onNavigate }: ChatbotWorkspaceProps = {}) {
 
   const handleToggleStrictMode = () => {
     const nextMode = !isStrictMode;
+    if (phase === 'focus' || phase === 'paused') {
+      strictModeManualOverrideRef.current = true;
+      autoStrictModeActiveRef.current = false;
+    }
     setIsStrictMode(nextMode);
     localStorage.setItem('focusspark-strict-mode', String(nextMode));
     setDistractionCount(0);
+    strictDistractionCountRef.current = 0;
     syncStrictModeToBackground(nextMode);
 
     if (nextMode) {
@@ -467,7 +493,11 @@ export function ChatbotWorkspace({ onNavigate }: ChatbotWorkspaceProps = {}) {
         if (!isStrictMode) return;
 
         const nextCount = Number(runtimeMessage.count || 1);
+        strictDistractionCountRef.current = nextCount;
         setDistractionCount(nextCount);
+        if (phase === 'focus' || phase === 'paused') {
+          setSessionDistractionCount(Math.max(0, nextCount - pomodoroDistractionBaseRef.current));
+        }
 
         showTopToast('warning', 'Tab changed detected. Please return to your study tab.', {
           id: 'chat-tab-changed',
@@ -502,7 +532,7 @@ export function ChatbotWorkspace({ onNavigate }: ChatbotWorkspaceProps = {}) {
         chromeApi.runtime.onMessage.removeListener(listener);
       }
     };
-  }, [chromeApi?.runtime?.onMessage, isStrictMode, showTopToast]);
+  }, [chromeApi?.runtime?.onMessage, isStrictMode, phase, setSessionDistractionCount, showTopToast]);
 
   useEffect(() => {
     const onVisibilityChange = () => {
@@ -728,7 +758,7 @@ export function ChatbotWorkspace({ onNavigate }: ChatbotWorkspaceProps = {}) {
           wsRef.current = null;
         }
 
-        if (isDetectionEnabled) {
+        if (detectionEnabledRef.current) {
           setTransportMode('http');
           showTopToast('info', 'Realtime socket unavailable. Switched to HTTP mode.', {
             id: 'chat-socket-status',
@@ -789,7 +819,7 @@ export function ChatbotWorkspace({ onNavigate }: ChatbotWorkspaceProps = {}) {
 
   const handleCameraToggle = () => {
     const nextEnabled = !isDetectionEnabled;
-    setIsDetectionEnabled(nextEnabled);
+    setIsDetectionEnabled(nextEnabled, { persist: false });
 
     if (nextEnabled) {
       showTopToast('success', 'Camera enabled! Focus detection started.', {
@@ -803,6 +833,54 @@ export function ChatbotWorkspace({ onNavigate }: ChatbotWorkspaceProps = {}) {
       });
     }
   };
+
+  const applyStrictMode = useCallback((enabled: boolean) => {
+    setIsStrictMode(enabled);
+    localStorage.setItem('focusspark-strict-mode', String(enabled));
+    if (!enabled) {
+      setDistractionCount(0);
+      strictDistractionCountRef.current = 0;
+    }
+    syncStrictModeToBackground(enabled);
+  }, [syncStrictModeToBackground]);
+
+  useEffect(() => {
+    const previousPhase = previousPomodoroPhaseRef.current;
+    const wasPomodoroFocus = previousPhase === 'focus' || previousPhase === 'paused';
+    const isPomodoroFocus = phase === 'focus' || phase === 'paused';
+
+    if (!wasPomodoroFocus && isPomodoroFocus) {
+      strictModeBeforePomodoroRef.current = isStrictMode;
+      strictModeManualOverrideRef.current = false;
+
+      if (!isStrictMode) {
+        autoStrictModeActiveRef.current = true;
+        applyStrictMode(true);
+        showTopToast('info', 'Strict Mode ON for this Pomodoro session.', {
+          id: 'chat-strict-mode',
+          duration: 3000,
+        });
+      } else {
+        autoStrictModeActiveRef.current = false;
+      }
+    }
+
+    if (wasPomodoroFocus && !isPomodoroFocus) {
+      const shouldRestoreOff =
+        autoStrictModeActiveRef.current &&
+        !strictModeBeforePomodoroRef.current &&
+        !strictModeManualOverrideRef.current;
+
+      if (shouldRestoreOff) {
+        applyStrictMode(false);
+      }
+
+      autoStrictModeActiveRef.current = false;
+      strictModeManualOverrideRef.current = false;
+    }
+
+    previousPomodoroPhaseRef.current = phase;
+  }, [applyStrictMode, isStrictMode, phase, showTopToast]);
 
   // Keyboard shortcuts
   useEffect(() => {

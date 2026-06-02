@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useCallback, useState } from 'react';
 import { FocusContext, type EmotionalState } from './focusContextValue';
 
 export const FocusProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
@@ -14,23 +14,25 @@ export const FocusProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   });
   const [emotionalState, setEmotionalState] = useState<EmotionalState>('neutral');
 
-  const setIsDetectionEnabled = (value: boolean) => {
-    localStorage.setItem('focusspark-camera-detection', value.toString());
+  const setIsDetectionEnabled = useCallback((value: boolean, options: { persist?: boolean } = {}) => {
+    if (options.persist !== false) {
+      localStorage.setItem('focusspark-camera-detection', value.toString());
+    }
     setDetectionEnabledState(value);
 
     if (!value) {
       setIsFocused(false);
       setFocusScore(50);
     }
-  };
+  }, []);
 
-  const addFocusedTime = (minutes: number) => {
+  const addFocusedTime = useCallback((minutes: number) => {
     setTotalFocusedMinutes((prev) => {
       const newTotal = prev + minutes;
       localStorage.setItem('focusspark-total-focus-time', newTotal.toString());
       return newTotal;
     });
-  };
+  }, []);
 
   return (
     <FocusContext.Provider
