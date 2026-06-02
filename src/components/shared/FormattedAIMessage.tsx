@@ -1,6 +1,7 @@
 import * as React from 'react';
 import { motion } from 'motion/react';
 import { GraduationCap } from 'lucide-react';
+import { formatUserTime } from '../../utils/timezone';
 
 interface FormattedAIMessageProps {
   content: string;
@@ -22,6 +23,7 @@ export function FormattedAIMessage({ content, timestamp }: FormattedAIMessagePro
         
         // Skip empty lines
         if (!trimmedLine) return;
+        if (/^[-*_]{3,}$/.test(trimmedLine)) return;
 
         // Check if it's a heading (starts with # or is all uppercase with length > 3)
         const isHashHeading = trimmedLine.startsWith('#');
@@ -32,7 +34,7 @@ export function FormattedAIMessage({ content, timestamp }: FormattedAIMessagePro
         
         if (isHashHeading) {
           // Remove # symbols
-          const headingText = trimmedLine.replace(/^#+\s*/, '');
+          const headingText = cleanMarkdown(trimmedLine.replace(/^#+\s*/, ''));
           elements.push(
             <motion.h4
               key={`heading-${index}-${lineIndex}`}
@@ -53,7 +55,7 @@ export function FormattedAIMessage({ content, timestamp }: FormattedAIMessagePro
               transition={{ delay: index * 0.1 + lineIndex * 0.05 }}
               className="gradient-text mb-3 mt-4 first:mt-0"
             >
-              {trimmedLine}
+              {cleanMarkdown(trimmedLine)}
             </motion.h4>
           );
         }
@@ -126,8 +128,13 @@ export function FormattedAIMessage({ content, timestamp }: FormattedAIMessagePro
       .replace(/_(.+?)_/g, '$1')
       // Remove inline code markers
       .replace(/`(.+?)`/g, '$1')
+      // Remove markdown divider leftovers and unmatched emphasis markers
+      .replace(/^[-*_]{3,}$/g, '')
+      .replace(/\*\*/g, '')
+      .replace(/__/g, '')
       // Clean up any remaining asterisks or underscores at word boundaries
-      .replace(/\B[*_]+\B/g, '');
+      .replace(/\B[*_]+\B/g, '')
+      .trim();
   };
 
   return (
@@ -158,7 +165,7 @@ export function FormattedAIMessage({ content, timestamp }: FormattedAIMessagePro
             transition={{ delay: 0.5 }}
             className="text-xs text-gray-500 dark:text-gray-400 mt-3 block"
           >
-            {timestamp.toLocaleTimeString()}
+            {formatUserTime(timestamp)}
           </motion.span>
         </div>
       </div>

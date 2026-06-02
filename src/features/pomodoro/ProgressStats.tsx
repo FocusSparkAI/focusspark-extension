@@ -68,7 +68,7 @@ export function ProgressStats({ onNavigate }: ProgressStatsProps) {
 
   const weeklyProgress = Math.min(
     100,
-    Math.round((stats.weekly_focus_minutes / WEEKLY_TARGET_MINUTES) * 100),
+    Math.max(0, Math.round((stats.weekly_focus_minutes / WEEKLY_TARGET_MINUTES) * 100)),
   );
 
   const weeklyData = useMemo(() => {
@@ -102,8 +102,8 @@ export function ProgressStats({ onNavigate }: ProgressStatsProps) {
       </CardHeader>
       <CardContent className="flex h-full flex-col gap-5">
         <div className="grid gap-5 sm:grid-cols-[132px_minmax(0,1fr)] sm:items-center">
-          <div className="relative mx-auto h-32 w-32">
-            <svg width="128" height="128" className="-rotate-90">
+          <div className="relative mx-auto grid h-32 w-32 place-items-center">
+            <svg viewBox="0 0 128 128" className="h-32 w-32 -rotate-90">
               <circle
                 cx="64"
                 cy="64"
@@ -111,7 +111,7 @@ export function ProgressStats({ onNavigate }: ProgressStatsProps) {
                 stroke="currentColor"
                 strokeWidth="10"
                 fill="none"
-                className="text-muted"
+                className="text-slate-200 dark:text-slate-700"
               />
               <motion.circle
                 cx="64"
@@ -135,9 +135,11 @@ export function ProgressStats({ onNavigate }: ProgressStatsProps) {
                 </linearGradient>
               </defs>
             </svg>
-            <div className="absolute inset-0 flex flex-col items-center justify-center">
-              <span className="text-2xl font-semibold">{weeklyProgress}%</span>
-              <span className="text-xs text-secondary">{weeklyHoursLabel}</span>
+            <div className="absolute left-1/2 top-1/2 flex -translate-x-1/2 -translate-y-1/2 items-center justify-center text-center">
+              <div className="flex flex-col items-center justify-center leading-none">
+                <span className="block text-2xl font-semibold leading-none">{weeklyProgress}%</span>
+                <span className="mt-2 block text-xs leading-none text-secondary">{weeklyHoursLabel}</span>
+              </div>
             </div>
           </div>
 
@@ -149,7 +151,7 @@ export function ProgressStats({ onNavigate }: ProgressStatsProps) {
                   <motion.div
                     className="w-full max-w-9 rounded-t-lg bg-gradient-to-t from-blue-500 to-purple-600"
                     initial={{ height: 8 }}
-                    animate={{ height: Math.max(18, (item.hours / maxHours) * 88) }}
+                    animate={{ height: item.hours > 0 ? Math.max(18, (item.hours / maxHours) * 88) : 4 }}
                     transition={{ delay: index * 0.08, duration: 0.5 }}
                   />
                   <span className="text-xs text-secondary">{item.day}</span>

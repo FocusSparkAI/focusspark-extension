@@ -26,6 +26,7 @@ import { BACKEND_BASE_URL, BACKEND_ROUTES } from '../../config/backend';
 import { FRONTEND_ROUTES, buildFrontendUrl } from '../../config/frontend';
 import backendClient, { getAuthHeaders } from '../../utils/backendClient';
 import { playSoundForNewUnreadNotifications, unlockNotificationSound } from '../../utils/notificationSound';
+import { formatUserDate, parseBackendDate, setUserTimeZone } from '../../utils/timezone';
 
 interface DashboardNavbarProps {
   onLogout: () => void | Promise<void>;
@@ -40,8 +41,14 @@ type DashboardNotification = {
   created_at: string;
 };
 
+type ChromeTabsApi = {
+  tabs?: {
+    create?: (details: { url: string }) => void;
+  };
+};
+
 function formatNotificationTime(value: string) {
-  const createdAt = new Date(value).getTime();
+  const createdAt = parseBackendDate(value).getTime();
   if (!Number.isFinite(createdAt)) return '';
 
   const diffSeconds = Math.max(0, Math.floor((Date.now() - createdAt) / 1000));
@@ -56,7 +63,7 @@ function formatNotificationTime(value: string) {
   const diffDays = Math.floor(diffHours / 24);
   if (diffDays < 7) return `${diffDays} day${diffDays === 1 ? '' : 's'} ago`;
 
-  return new Date(value).toLocaleDateString();
+  return formatUserDate(value);
 }
 
 function getNotificationIcon(type: string) {
@@ -77,7 +84,7 @@ function getNotificationIconClass(type: string) {
 
 function openFrontendRoute(path: string) {
   const url = buildFrontendUrl(path);
-  const chromeApi = (globalThis as typeof globalThis & { chrome?: any }).chrome;
+  const chromeApi = (globalThis as typeof globalThis & { chrome?: ChromeTabsApi }).chrome;
 
   if (chromeApi?.tabs?.create) {
     chromeApi.tabs.create({ url });
@@ -119,6 +126,7 @@ export function DashboardNavbar({ onLogout }: DashboardNavbarProps) {
         headers: authHeaders,
       });
       const data = response.data;
+      setUserTimeZone(data?.timezone);
       setAvatarUrl(resolveAssetUrl(data?.avatar_url ?? data?.avatarUrl ?? ''));
       setDisplayName(data?.full_name ?? data?.fullName ?? data?.name ?? '');
     } catch {
@@ -175,11 +183,11 @@ export function DashboardNavbar({ onLogout }: DashboardNavbarProps) {
 
   useEffect(() => {
     unlockNotificationSound();
-    void loadNotifications();
+    void Promise.resolve().then(loadNotifications);
   }, [loadNotifications]);
 
   useEffect(() => {
-    void loadProfile();
+    void Promise.resolve().then(loadProfile);
   }, [loadProfile]);
 
   const markNotificationRead = async (notification: DashboardNotification) => {

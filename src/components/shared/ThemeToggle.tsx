@@ -4,8 +4,10 @@ interface ThemeToggleProps {
   isSpecialPage?: boolean;
 }
 
-export function ThemeToggle({ theme: _theme, onToggle: _onToggle, isSpecialPage: _isSpecialPage = false }: ThemeToggleProps) {
-  return (
-   <></>
-  );
+export function ThemeToggle({ theme, onToggle, isSpecialPage = false }: ThemeToggleProps) {
+  void theme;
+  void onToggle;
+  void isSpecialPage;
+
+  return null;
 }

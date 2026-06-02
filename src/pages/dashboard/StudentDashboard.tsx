@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { motion } from 'motion/react';
 import {
   ArrowRight,
@@ -25,8 +25,8 @@ import { Button } from '../../components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '../../components/ui/card';
 import { Input } from '../../components/ui/input';
 import { Label } from '../../components/ui/label';
-import { useFocus } from '../../context/FocusContext';
-import { usePomodoro } from '../../context/PomodoroContext';
+import { useFocus } from '../../hooks/useFocus';
+import { usePomodoro } from '../../hooks/usePomodoro';
 import { BACKEND_ROUTES } from '../../config/backend';
 import backendClient, { getAuthHeaders } from '../../utils/backendClient';
 
@@ -34,27 +34,6 @@ interface StudentDashboardProps {
   onNavigate: (page: string) => void;
   onLogout: () => void | Promise<void>;
 }
-
-const getFocusStreakDays = (sessions: Array<{ completed: boolean; endTime?: Date; startTime: Date }>) => {
-  const completedDays = new Set(
-    sessions
-      .filter((session) => session.completed)
-      .map((session) => {
-        const date = new Date(session.endTime ?? session.startTime);
-        return Number.isNaN(date.getTime()) ? null : date.toDateString();
-      })
-      .filter(Boolean),
-  );
-
-  let streak = 0;
-  const cursor = new Date();
-  while (completedDays.has(cursor.toDateString())) {
-    streak += 1;
-    cursor.setDate(cursor.getDate() - 1);
-  }
-
-  return streak;
-};
 
 const studyTools = [
   {
@@ -92,8 +71,10 @@ export function StudentDashboard({ onNavigate, onLogout }: StudentDashboardProps
   const [dashboardStats, setDashboardStats] = useState({
     flashcardDecks: 0,
     quizSets: 0,
-    activeGoal: null as any,
-    todayGoalStats: null as any,
+    currentStreak: 0,
+    activeGoal: null as Record<string, unknown> | null,
+    todayGoals: [] as Record<string, unknown>[],
+    todayGoalStats: null as Record<string, unknown> | null,
     isLoading: true,
   });
   const [profileName, setProfileName] = useState('');
@@ -108,16 +89,20 @@ export function StudentDashboard({ onNavigate, onLogout }: StudentDashboardProps
   const [draftFocusMinutes, setDraftFocusMinutes] = useState(savedFocusMinutes);
   const [draftBreakMinutes, setDraftBreakMinutes] = useState(savedBreakMinutes);
   const { isDetectionEnabled } = useFocus();
-  const { startSession, sessions } = usePomodoro();
-  const focusStreakDays = useMemo(() => getFocusStreakDays(sessions), [sessions]);
+  const { startSession } = usePomodoro();
   const activeGoal = dashboardStats.activeGoal;
+  const todayGoalsCount = dashboardStats.todayGoals.length;
+  const completedGoals = Number(dashboardStats.todayGoalStats?.completed ?? 0);
+  const totalGoals = Number(dashboardStats.todayGoalStats?.total ?? todayGoalsCount);
   const activeGoalValue = activeGoal
-    ? `${Number(activeGoal.current_minutes ?? 0)}/${Number(activeGoal.target_minutes ?? 0)}m`
+    ? String(activeGoal.title ?? 'Active goal')
+    : totalGoals > 0
+    ? 'All done'
     : 'No goal';
   const activeGoalHelper = activeGoal
-    ? activeGoal.title
-    : Number(dashboardStats.todayGoalStats?.completed ?? 0) > 0
-    ? 'All goals completed today'
+    ? `${Number(activeGoal.current_minutes ?? 0)}/${Number(activeGoal.target_minutes ?? 0)} min`
+    : totalGoals > 0
+    ? `${completedGoals}/${totalGoals} goals completed today`
     : 'Set one on the website';
 
   useEffect(() => {
@@ -140,7 +125,9 @@ export function StudentDashboard({ onNavigate, onLogout }: StudentDashboardProps
         setDashboardStats({
           flashcardDecks: decks.length,
           quizSets: quizzes.length,
+          currentStreak: Number(studyResponse.data?.current_streak ?? 0),
           activeGoal: studyResponse.data?.active_goal ?? null,
+          todayGoals: Array.isArray(studyResponse.data?.today_goals) ? studyResponse.data.today_goals : [],
           todayGoalStats: studyResponse.data?.today_goal_stats ?? null,
           isLoading: false,
         });
@@ -203,8 +190,8 @@ export function StudentDashboard({ onNavigate, onLogout }: StudentDashboardProps
     },
     {
       label: 'Focus Streak',
-      value: `${focusStreakDays}d`,
-      helper: focusStreakDays > 0 ? 'Keep your rhythm going' : 'Complete a focus session today',
+      value: dashboardStats.isLoading ? '...' : `${dashboardStats.currentStreak}d`,
+      helper: dashboardStats.currentStreak > 0 ? 'Keep your rhythm going' : 'Complete a focus session today',
       icon: Trophy,
       color: 'text-amber-500',
     },

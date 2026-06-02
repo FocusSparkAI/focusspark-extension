@@ -114,59 +114,6 @@ export async function generateAIResponse(
   return sendChatPrompt(fullPrompt, provider, model);
 }
 
-export async function generateFlashcards(
-  content: string,
-  count: number = 10,
-): Promise<AIResponse> {
-  const authHeaders = await getAuthHeaders();
-  const response = await backendClient.post(
-    BACKEND_ROUTES.flashcardGenerate,
-    { topic: content, card_count: count },
-    { headers: authHeaders },
-  );
-
-  return {
-    success: true,
-    text: JSON.stringify(response.data),
-  };
-}
-
-export async function generateQuiz(
-  content: string,
-  questionCount: number = 5,
-): Promise<AIResponse> {
-  void questionCount;
-  const authHeaders = await getAuthHeaders();
-  const response = await backendClient.post(
-    BACKEND_ROUTES.quizGenerate,
-    { topic: content },
-    { headers: authHeaders },
-  );
-
-  return {
-    success: true,
-    text: JSON.stringify(response.data),
-  };
-}
-
-export async function summarizeContent(
-  content: string,
-  bulletPoints: number = 5,
-): Promise<AIResponse> {
-  const context = `You are an expert at distilling complex information. Create a concise summary with exactly ${bulletPoints} key points from the following content. Format as:\n\n📚 SUMMARY:\n[2-sentence overview]\n\n🔑 KEY POINTS:\n1. [First key point]\n2. [Second key point]\n...\n\nMake it clear, actionable, and perfect for quick review.`;
-
-  return generateAIResponse(content, context);
-}
-
-export async function getStudySuggestions(
-  topic: string,
-  progress: string,
-): Promise<AIResponse> {
-  const context = `You are FocusSpark AI Tutor, an expert study coach. Provide 3 personalized, actionable study suggestions based on:\n- Topic: ${topic}\n- Current situation: ${progress}\n\nFormat as:\n💡 SUGGESTION 1: [Title]\n[Brief explanation]\n\n💡 SUGGESTION 2: [Title]\n[Brief explanation]\n\n💡 SUGGESTION 3: [Title]\n[Brief explanation]\n\nKeep suggestions practical, motivating, and science-backed.`;
-
-  return generateAIResponse('', context);
-}
-
 export async function chatWithAITutor(
   message: string,
   conversationHistory: string = '',
@@ -176,25 +123,6 @@ export async function chatWithAITutor(
   const context = `You are FocusSpark AI Tutor, an expert study coach. Provide clear, actionable guidance with real-world examples. Be direct, motivating, and focus on deep understanding.\n${conversationHistory ? `\nCONVERSATION HISTORY:\n${conversationHistory}\n` : ''}\nUSER: ${message}\n\nRespond naturally, helpfully, and in character. Keep responses concise but complete (2-4 paragraphs max).`;
 
   return generateAIResponse('', context, provider, model);
-}
-
-export async function explainConcept(
-  concept: string,
-  level: 'beginner' | 'intermediate' | 'advanced' = 'beginner',
-): Promise<AIResponse> {
-  const context = `Explain "${concept}" for a ${level} learner. Use:\n- Simple language and clear examples\n- Real-world analogies\n- Step-by-step breakdown if needed\n\nFormat:\n🎯 SIMPLE EXPLANATION:\n[2-3 sentences]\n\n📖 DETAILED BREAKDOWN:\n[Clear explanation with examples]\n\n💡 KEY TAKEAWAY:\n[One memorable insight]`;
-
-  return generateAIResponse('', context);
-}
-
-export async function generatePracticeProblems(
-  topic: string,
-  difficulty: 'easy' | 'medium' | 'hard' = 'medium',
-  count: number = 3,
-): Promise<AIResponse> {
-  const context = `Generate ${count} ${difficulty} practice problems for: ${topic}\n\nFormat each as:\nPROBLEM X:\n[Problem statement]\n\nHINT: [Helpful hint]\nSOLUTION: [Step-by-step solution]\n\n---\n\nMake problems realistic and educational.`;
-
-  return generateAIResponse('', context);
 }
 
 export async function fetchFlashcardsFromChat(messageId: number): Promise<AIResponse> {

@@ -39,6 +39,8 @@ export const BACKEND_ROUTES = {
   studyDashboardStats: '/study/stats/dashboard',
   studyGoals: '/study/goals',
   studySettings: '/study/settings',
+  studySessions: '/study/sessions',
+  studySessionComplete: '/study/sessions/{session_id}/complete',
 } as const;
 
 export function buildBackendUrl(path: string): string {

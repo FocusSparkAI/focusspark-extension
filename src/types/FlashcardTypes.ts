@@ -32,13 +32,15 @@ export const CHAT_HISTORY_FLASHCARDS_KEY = 'focusspark-chat-history-flashcards';
 
 export const getReviewIntervalDays = (known: boolean) => (known ? 3 : 1);
 
+type RawRecord = Record<string, unknown>;
+
 const parseDate = (value: unknown) => {
   if (!value) return undefined;
   const date = new Date(String(value));
   return Number.isNaN(date.getTime()) ? undefined : date;
 };
 
-const getDeckSourceType = (d: any): Deck['sourceType'] => {
+const getDeckSourceType = (d: RawRecord): Deck['sourceType'] => {
   const sourceText = String(d.source_type ?? d.sourceType ?? d.source ?? '').toLowerCase();
   if (sourceText.includes('chat') || d.chat_id || d.thread_id || d.message_id) return 'Chat';
   if (sourceText.includes('document') || d.document_id || d.linked_document_id) return 'Document';
@@ -90,7 +92,8 @@ const getTitleFromRawCards = (value: unknown) => {
   return firstQuestion;
 };
 
-export const mapDeck = (d: any): Deck => {
+export const mapDeck = (value: unknown): Deck => {
+  const d = (value ?? {}) as RawRecord;
   const rawTitle = normalizeDeckTitle(d.title || d.name);
   const topicTitle = normalizeDeckTitle(d.topic ?? d.subject);
   const firstCardTitle = normalizeDeckTitle(getTitleFromRawCards(d));
@@ -125,22 +128,25 @@ export const mapDeck = (d: any): Deck => {
   };
 };
 
-export const mapCard = (c: any): Flashcard => {
+export const mapCard = (value: unknown): Flashcard => {
+  const c = (value ?? {}) as RawRecord;
   const sourceText = String(c.source_type ?? c.sourceType ?? c.source ?? '').toLowerCase();
   const source = sourceText.includes('chat')
     ? 'Chat'
     : sourceText.includes('document')
       ? 'Document'
       : 'Topic';
-  const difficulty = ['Easy', 'Medium', 'Hard'].includes(c.difficulty) ? c.difficulty : 'Medium';
+  const difficulty = ['Easy', 'Medium', 'Hard'].includes(String(c.difficulty))
+    ? String(c.difficulty) as Flashcard['difficulty']
+    : 'Medium';
 
   return {
     id: String(c.id),
-    front: c.front || '',
-    back: c.back || '',
-    explanation: c.explanation || '',
-    example: c.example || '',
-    memoryTip: c.memory_tip || c.memoryTip || '',
+    front: String(c.front ?? ''),
+    back: String(c.back ?? ''),
+    explanation: String(c.explanation ?? ''),
+    example: String(c.example ?? ''),
+    memoryTip: String(c.memory_tip ?? c.memoryTip ?? ''),
     source,
     difficulty,
     lastReviewed: parseDate(c.last_reviewed ?? c.lastReviewed),

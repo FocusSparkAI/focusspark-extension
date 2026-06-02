@@ -10152,7 +10152,7 @@
 }
 
 :root {
-    --font-size: 16px;
+    --font-size: 14.4px;
     --background: #fff;
     --foreground: #111827;
     --card: #fff;
@@ -11295,6 +11295,32 @@ html {
     border-color: #2dd4bf
 }
 
+.chat-quiz-option-correct {
+    color: #0f172a;
+    background: #ccfbf1;
+    border-color: #0d9488;
+    box-shadow: 0 0 0 1px #0d948833
+}
+
+.dark .chat-quiz-option-correct {
+    color: #f8fafc;
+    background: #134e4a;
+    border-color: #2dd4bf
+}
+
+.chat-quiz-option-incorrect {
+    color: #7f1d1d;
+    background: #fee2e2;
+    border-color: #ef4444;
+    box-shadow: 0 0 0 1px #ef444433
+}
+
+.dark .chat-quiz-option-incorrect {
+    color: #fecaca;
+    background: #7f1d1d;
+    border-color: #f87171
+}
+
 .chat-quiz-option-letter {
     color: hsl(var(--muted-foreground));
     background: #94a3b824;
@@ -11314,6 +11340,16 @@ html {
     background: #14b8a6
 }
 
+.chat-quiz-option-correct .chat-quiz-option-letter {
+    color: #fff;
+    background: #14b8a6
+}
+
+.chat-quiz-option-incorrect .chat-quiz-option-letter {
+    color: #fff;
+    background: #ef4444
+}
+
 .chat-quiz-option-text {
     color: hsl(var(--foreground));
     flex: 1;
@@ -11326,6 +11362,41 @@ html {
     flex-shrink: 0;
     width: 1rem;
     height: 1rem
+}
+
+.chat-quiz-feedback {
+    background: #3b82f61a;
+    border: 1px solid #3b82f64d;
+    border-radius: .75rem;
+    margin-top: 1rem;
+    padding: 1rem;
+    overflow: hidden
+}
+
+.dark .chat-quiz-feedback {
+    background: #3b82f633;
+    border-color: #3b82f64d
+}
+
+.chat-quiz-feedback-title {
+    color: #2563eb;
+    margin-bottom: .5rem;
+    font-size: .875rem;
+    font-weight: 700
+}
+
+.dark .chat-quiz-feedback-title {
+    color: #60a5fa
+}
+
+.chat-quiz-feedback-text {
+    color: #1f2937e6;
+    font-size: .875rem;
+    line-height: 1.65
+}
+
+.dark .chat-quiz-feedback-text {
+    color: #e5e7ebe6
 }
 
 .chat-quiz-complete {
@@ -12063,20 +12134,24 @@ html {
 }
 
 :not(.dark) .flashcard-search-icon {
-    color: #6b7280;
+    color: #2563eb !important;
     width: 1.25rem;
     height: 1.25rem;
     position: absolute;
+    z-index: 2;
+    pointer-events: none;
     top: 50%;
     left: .75rem;
     transform: translateY(-50%)
 }
 
 .dark .flashcard-search-icon {
-    color: #9ca3af;
+    color: #93c5fd !important;
     width: 1.25rem;
     height: 1.25rem;
     position: absolute;
+    z-index: 2;
+    pointer-events: none;
     top: 50%;
     left: .75rem;
     transform: translateY(-50%)
@@ -12773,20 +12848,24 @@ html {
 }
 
 :not(.dark) .quiz-search-icon {
-    color: #6b7280;
+    color: #2563eb !important;
     width: 1.25rem;
     height: 1.25rem;
     position: absolute;
+    z-index: 2;
+    pointer-events: none;
     top: 50%;
     left: .75rem;
     transform: translateY(-50%)
 }
 
 .dark .quiz-search-icon {
-    color: #9ca3af;
+    color: #93c5fd !important;
     width: 1.25rem;
     height: 1.25rem;
     position: absolute;
+    z-index: 2;
+    pointer-events: none;
     top: 50%;
     left: .75rem;
     transform: translateY(-50%)

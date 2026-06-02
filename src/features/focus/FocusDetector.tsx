@@ -2,7 +2,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import { AlertCircle, Camera, CameraOff, Eye, EyeOff } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '../../components/ui/button';
-import { useFocus } from '../../context/FocusContext';
+import { useFocus } from '../../hooks/useFocus';
 import { BACKEND_ROUTES, buildBackendUrl, buildBackendWsUrl } from '../../config/backend';
 import { getAccessToken, getAuthHeaders } from '../../utils/backendClient';
 
@@ -28,6 +28,8 @@ export const FocusDetector: React.FC<FocusDetectorProps> = ({
   const analysisInFlightRef = useRef(false);
   const fallbackToastShownRef = useRef(false);
   const authErrorToastShownRef = useRef(false);
+  const handleStartRef = useRef<() => Promise<void>>(async () => undefined);
+  const handleStopRef = useRef<() => void>(() => undefined);
 
   const startWebcam = async () => {
     try {
@@ -38,18 +40,19 @@ export const FocusDetector: React.FC<FocusDetectorProps> = ({
       if (videoRef.current) {
         videoRef.current.srcObject = stream;
       }
-    } catch (err: any) {
+    } catch (err: unknown) {
+      const cameraError = err as { name?: string };
       setStatus('error');
       setIsFocused(false);
       setIsProcessing(false);
 
-      if (err.name === 'NotAllowedError' || err.name === 'PermissionDeniedError') {
+      if (cameraError.name === 'NotAllowedError' || cameraError.name === 'PermissionDeniedError') {
         toast.error('Camera Access Denied', {
           description:
             'Please allow camera access in your browser settings to use focus detection. Click the camera icon in your address bar.',
           duration: 6000,
         });
-      } else if (err.name === 'NotFoundError' || err.name === 'DevicesNotFoundError') {
+      } else if (cameraError.name === 'NotFoundError' || cameraError.name === 'DevicesNotFoundError') {
         toast.error('No Camera Found', {
           description: 'Please connect a camera to use focus detection.',
           duration: 5000,
@@ -303,6 +306,11 @@ export const FocusDetector: React.FC<FocusDetectorProps> = ({
   };
 
   useEffect(() => {
+    handleStartRef.current = handleStart;
+    handleStopRef.current = handleStop;
+  });
+
+  useEffect(() => {
     return () => {
       closeWebSocket();
       stopBackendDetectionLoop();
@@ -315,13 +323,13 @@ export const FocusDetector: React.FC<FocusDetectorProps> = ({
 
   useEffect(() => {
     if (!isDetectionEnabled && isProcessing) {
-      handleStop();
+      void Promise.resolve().then(() => handleStopRef.current());
     }
   }, [isDetectionEnabled, isProcessing]);
 
   useEffect(() => {
     if (autoStart && isDetectionEnabled && !isProcessing && status === 'idle') {
-      void handleStart();
+      void Promise.resolve().then(() => handleStartRef.current());
     }
   }, [autoStart, isDetectionEnabled, isProcessing, status]);
 

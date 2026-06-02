@@ -6,20 +6,18 @@ import {
   ChevronRight,
   FileText,
   GraduationCap,
-  Upload,
   UserRound,
 } from 'lucide-react';
 import { Button } from '../ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '../ui/card';
 import { Badge } from '../ui/badge';
-import { Progress } from '../ui/progress';
 import { FormattedAIMessage } from '../shared/FormattedAIMessage';
 import type { Message } from '../../types/ChatTypes';
+import { formatUserTime } from '../../utils/timezone';
 
 interface ChatMessageListProps {
   messages: Message[];
   isProcessing: boolean;
-  uploadProgress: number;
   chatEndRef: RefObject<HTMLDivElement | null>;
   currentFlashcardIndex: number;
   revealedFlashcardIds: Set<string>;
@@ -33,7 +31,6 @@ interface ChatMessageListProps {
 export function ChatMessageList({
   messages,
   isProcessing,
-  uploadProgress,
   chatEndRef,
   currentFlashcardIndex,
   revealedFlashcardIds,
@@ -72,7 +69,7 @@ export function ChatMessageList({
                         </div>
                       )}
                       <span className="text-xs text-muted-foreground mt-2 block">
-                        {message.timestamp.toLocaleTimeString()}
+                        {formatUserTime(message.timestamp)}
                       </span>
                     </div>
                   </div>
@@ -124,8 +121,22 @@ export function ChatMessageList({
                         >
                           <Card
                             className={`chat-flashcard-card ${isCurrentCardRevealed ? 'chat-flashcard-card-back' : ''}`}
+                            role="button"
+                            tabIndex={isCurrentCardRevealed ? -1 : 0}
+                            aria-label={
+                              isCurrentCardRevealed
+                                ? `Answer revealed for ${currentCard.title}`
+                                : `Reveal answer for ${currentCard.title}`
+                            }
                             onClick={() => {
                               if (!isCurrentCardRevealed) {
+                                onRevealFlashcard(currentCard.id);
+                              }
+                            }}
+                            onKeyDown={(event) => {
+                              if (isCurrentCardRevealed) return;
+                              if (event.key === 'Enter' || event.key === ' ') {
+                                event.preventDefault();
                                 onRevealFlashcard(currentCard.id);
                               }
                             }}
@@ -158,7 +169,7 @@ export function ChatMessageList({
                                     {currentCard.front}
                                   </p>
                                   <p className="chat-flashcard-hint">
-                                    Click to reveal answer
+                                    Click, Enter, or Space to reveal answer
                                   </p>
                                 </div>
                               ) : (
@@ -268,43 +279,75 @@ export function ChatMessageList({
                   </div>
 
                   <div className="chat-quiz-stack">
-                    {message.quizData.map((question, qIndex) => (
-                      <motion.div
-                        key={question.id}
-                        initial={{ opacity: 0, x: -20 }}
-                        animate={{ opacity: 1, x: 0 }}
-                        transition={{ delay: qIndex * 0.1 }}
-                        className="chat-quiz-question-card"
-                      >
-                        <div className="chat-quiz-question-header">
-                          <span className="chat-quiz-question-number">Q{qIndex + 1}</span>
-                          <p className="chat-quiz-question-text">{question.question}</p>
-                        </div>
+                    {message.quizData.map((question, qIndex) => {
+                      const selectedAnswer = quizAnswers[question.id];
+                      const hasSelectedAnswer = typeof selectedAnswer === 'number';
 
-                        <div className="chat-quiz-options">
-                          {question.options.map((option, oIndex) => (
-                            <Button
-                              key={oIndex}
-                              variant="outline"
-                              className={`chat-quiz-option ${quizAnswers[question.id] === oIndex ? 'chat-quiz-option-selected' : ''}`}
-                              onClick={() => {
-                                onQuizAnswersChange((prev) => ({
-                                  ...prev,
-                                  [question.id]: oIndex,
-                                }));
-                              }}
-                            >
-                              <span className="chat-quiz-option-letter">{String.fromCharCode(65 + oIndex)}</span>
-                              <span className="chat-quiz-option-text">{option}</span>
-                              {quizAnswers[question.id] === oIndex && (
-                                <Check className="chat-quiz-option-check" />
-                              )}
-                            </Button>
-                          ))}
-                        </div>
+                      return (
+                        <motion.div
+                          key={question.id}
+                          initial={{ opacity: 0, x: -20 }}
+                          animate={{ opacity: 1, x: 0 }}
+                          transition={{ delay: qIndex * 0.1 }}
+                          className="chat-quiz-question-card"
+                        >
+                          <div className="chat-quiz-question-header">
+                            <span className="chat-quiz-question-number">Q{qIndex + 1}</span>
+                            <p className="chat-quiz-question-text">{question.question}</p>
+                          </div>
 
-                      </motion.div>
-                    ))}
+                          <div className="chat-quiz-options">
+                            {question.options.map((option, oIndex) => {
+                              const isSelected = selectedAnswer === oIndex;
+                              const isCorrect = question.correctAnswer === oIndex;
+                              const optionClass = [
+                                'chat-quiz-option',
+                                !hasSelectedAnswer && isSelected ? 'chat-quiz-option-selected' : '',
+                                hasSelectedAnswer && isCorrect ? 'chat-quiz-option-correct' : '',
+                                hasSelectedAnswer && isSelected && !isCorrect ? 'chat-quiz-option-incorrect' : '',
+                              ].filter(Boolean).join(' ');
+
+                              return (
+                                <Button
+                                  key={oIndex}
+                                  variant="outline"
+                                  className={optionClass}
+                                  disabled={hasSelectedAnswer}
+                                  onClick={() => {
+                                    if (hasSelectedAnswer) return;
+
+                                    onQuizAnswersChange((prev) => ({
+                                      ...prev,
+                                      [question.id]: oIndex,
+                                    }));
+                                  }}
+                                >
+                                  <span className="chat-quiz-option-letter">{String.fromCharCode(65 + oIndex)}</span>
+                                  <span className="chat-quiz-option-text">{option}</span>
+                                  {hasSelectedAnswer && isCorrect && (
+                                    <Check className="chat-quiz-option-check" />
+                                  )}
+                                </Button>
+                              );
+                            })}
+                          </div>
+
+                          <AnimatePresence>
+                            {hasSelectedAnswer && question.explanation && (
+                              <motion.div
+                                initial={{ opacity: 0, height: 0 }}
+                                animate={{ opacity: 1, height: 'auto' }}
+                                exit={{ opacity: 0, height: 0 }}
+                                className="chat-quiz-feedback"
+                              >
+                                <p className="chat-quiz-feedback-title">Explanation:</p>
+                                <p className="chat-quiz-feedback-text">{question.explanation}</p>
+                              </motion.div>
+                            )}
+                          </AnimatePresence>
+                        </motion.div>
+                      );
+                    })}
 
                     {Object.keys(quizAnswers).length === message.quizData.length && (
                       <motion.div
@@ -314,7 +357,7 @@ export function ChatMessageList({
                       >
                         <p className="chat-quiz-complete-title">Quiz Complete!</p>
                         <p className="chat-quiz-complete-score">
-                          Score: {Object.values(quizAnswers).filter((answer, idx) => answer === message.quizData![idx].correctAnswer).length} / {message.quizData.length}
+                          Score: {message.quizData.filter((question) => quizAnswers[question.id] === question.correctAnswer).length} / {message.quizData.length}
                         </p>
                       </motion.div>
                     )}
@@ -345,20 +388,6 @@ export function ChatMessageList({
                 <span className="text-sm text-muted-foreground">Tutor is thinking...</span>
               </div>
             </div>
-          </motion.div>
-        )}
-
-        {uploadProgress > 0 && uploadProgress < 100 && (
-          <motion.div
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            className="rounded-2xl p-6 bg-white/95 dark:bg-[#1C1F2A]/95 backdrop-blur-md shadow-lg"
-          >
-            <div className="flex items-center gap-3 mb-3">
-              <Upload className="w-5 h-5 text-blue-400" />
-              <p className="text-foreground">Uploading and processing document...</p>
-            </div>
-            <Progress value={uploadProgress} className="h-2" />
           </motion.div>
         )}
 

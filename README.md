@@ -1,20 +1,21 @@
 # FocusSpark Extension
 
-FocusSpark Extension is the Chrome extension frontend for the FocusSpark study workspace. It contains the extension app shell, dashboard, AI tutor workspace, focus tools, Pomodoro behavior, quizzes, flashcards, and the MV3 background service worker.
+Chrome extension frontend for the FocusSpark study workspace. It gives students quick access to their dashboard, AI tutor, Pomodoro timer, focus tools, flashcards, quizzes, and extension-specific study behavior.
 
-Website-only pages such as the public landing pages, Science page, profile, and long-form settings live in `FocusSpark-Frontend`.
+Website-only pages such as the public landing pages, Science page, profile management, and long-form settings live in `FocusSpark-Frontend`.
 
-## What Is In This Repo
+## What Is Included
 
 - Chrome Extension Manifest V3 setup
 - React app mounted inside the extension page
 - Background service worker for extension actions and focus-session behavior
-- Sign in and sign up screens
+- Signin screen and web signup handoff
 - Student dashboard and study workspace
 - AI chat workspace and chat history
-- Flashcards and quiz flows
-- Focus tools, webcam test screens, and Pomodoro/focus context
-- Extension bell dropdown that respects the web settings value `notifications_enabled`
+- Flashcard and quiz flows
+- Focus tools, webcam checks, Pomodoro context, and focus context
+- Extension notification dropdown that respects the backend `notifications_enabled` setting
+- Cloudinary-backed profile avatar display through the backend `avatar_url`
 
 ## Tech Stack
 
@@ -25,7 +26,7 @@ Website-only pages such as the public landing pages, Science page, profile, and 
 - Chrome Extension Manifest V3
 - Chrome storage, tabs, and notifications APIs
 - Axios
-- Radix UI
+- Radix UI primitives
 - Lucide React
 - Motion
 - Recharts
@@ -61,7 +62,7 @@ FocusSpark-Extension/
 
 ## Environment
 
-Create a `.env` file in this project root when you need to override the defaults:
+Create `.env` in `FocusSpark-Extension/` when you need to override the defaults.
 
 ```env
 VITE_BACKEND_BASE_URL=http://127.0.0.1:8000
@@ -69,6 +70,8 @@ VITE_FRONTEND_BASE_URL=http://localhost:3000
 ```
 
 The extension falls back to those same local URLs when the variables are not set.
+
+`VITE_BACKEND_BASE_URL` points to the FastAPI API. `VITE_FRONTEND_BASE_URL` is used when the extension opens web-only pages in a normal browser tab.
 
 ## Local Development
 
@@ -85,6 +88,28 @@ npm run build
 
 The compiled extension is written to `build/`.
 
+## Extension Routes
+
+Routes rendered inside the extension app:
+
+- `/`
+- `/signin`
+- `/dashboard`
+- `/chatbot`
+- `/flashcards`
+- `/chat-history`
+- `/quiz`
+- `/webcam-test`
+
+Routes handed off to the web frontend:
+
+- Signup
+- Forgot password
+- Achievements
+- Profile
+- Settings
+- Notifications
+
 ## Load In Chrome
 
 1. Run `npm run build`.
@@ -99,9 +124,14 @@ After changing `public/manifest.json` or `public/background.js`, rebuild and rel
 
 - Clicking the FocusSpark extension icon opens the extension app in Chrome.
 - Auth tokens are stored in Chrome extension storage under `fs_access_token`.
+- Dashboard/profile UI reads the authenticated user profile from the backend.
+- Profile avatars are displayed from the backend `avatar_url`; new uploads are handled by the web profile page and stored in Cloudinary by the backend.
 - The background service worker manages focus-session tab behavior.
-- The extension notification dropdown reads `/study/settings`; when `notifications_enabled` is false it shows "Notifications off" and still links to the full web notifications page.
-- The extension can open web routes such as sign up, forgot password, achievements, profile, settings, and notifications through `src/config/frontend.ts`.
+- During an active or paused Pomodoro focus phase, navigation is locked to the AI chatbot workspace.
+- Pomodoro phase changes are sent to the background service worker so break and focus behavior can stay synchronized with extension tab behavior.
+- The extension notification dropdown reads `/study/settings`.
+- When `notifications_enabled` is false, the dropdown shows "Notifications off" and still links to the full web notifications page.
+- The extension can open web routes such as signup, forgot password, achievements, profile, settings, and notifications through `src/config/frontend.ts`.
 
 ## Scripts
 
@@ -112,9 +142,22 @@ npm run lint     # Run ESLint
 npm run preview  # Preview production build
 ```
 
+## Demo Checklist
+
+- Backend is running at `VITE_BACKEND_BASE_URL`
+- Web frontend is running at `VITE_FRONTEND_BASE_URL` for external page links
+- Extension builds successfully
+- Chrome loads the `build/` folder without manifest errors
+- User can sign in
+- Dashboard loads profile data and Cloudinary avatar
+- Pomodoro, focus tools, AI chat, quiz, and flashcard pages open correctly
+- Active Pomodoro focus mode keeps the user in the chatbot workspace
+- Notification dropdown reflects backend settings
+
 ## Notes
 
-- Keep extension-specific work in this repository.
+- Keep extension-specific work in this project.
 - Keep website-only pages in the main web frontend.
 - Rebuild before loading or reloading the extension in Chrome.
 - Treat `build/` as generated output.
+- Profile-picture uploads are intentionally handled through the backend/web profile flow, while the extension consumes the resulting avatar URL.

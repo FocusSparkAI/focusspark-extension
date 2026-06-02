@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import axios from 'axios';
 import { motion, AnimatePresence } from 'motion/react';
 import {
@@ -21,6 +21,9 @@ import { Badge } from '../../components/ui/badge';
 import { toast } from 'sonner';
 import { BACKEND_ROUTES, buildBackendUrl } from '../../config/backend';
 import { getAuthHeaders } from '../../utils/backendClient';
+import { CHAT_HISTORY_FLASHCARDS_KEY } from '../../types/FlashcardTypes';
+import { CHAT_HISTORY_QUIZ_KEY } from '../../types/QuizTypes';
+import { formatUserTime } from '../../utils/timezone';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -76,9 +79,6 @@ interface Chat {
   messages: ChatMessage[];
 }
 
-const CHAT_HISTORY_FLASHCARDS_KEY = 'focusspark-chat-history-flashcards';
-const CHAT_HISTORY_QUIZ_KEY = 'focusspark-chat-history-quiz';
-
 const stripTutorPromptWrapper = (text: string) => {
   const trimmedText = text.trim();
   if (!trimmedText) {
@@ -94,8 +94,74 @@ const stripTutorPromptWrapper = (text: string) => {
 };
 
 const getAttachmentNameFromText = (text: string) => {
-  const attachmentMatch = text.match(/(?:^|\n)\s*Attached:\s*(.+?)\s*(?:\n|$)/i);
+  const attachmentMatch = text.match(/(?:^|\n)\s*(?:Attached|Uploaded file):\s*(.+?)\s*(?:\n|$)/i);
   return attachmentMatch?.[1]?.trim() || '';
+};
+
+const getAttachmentNameFromRecord = (record: Record<string, unknown>, allowGenericName = false): string => {
+  const keys = [
+    'attachmentName',
+    'attachment_name',
+    'attachment_filename',
+    'attachmentFileName',
+    'uploaded_file',
+    'uploadedFile',
+    'uploaded_file_name',
+    'uploadedFileName',
+    'uploaded_document',
+    'uploadedDocument',
+    'uploaded_document_name',
+    'uploadedDocumentName',
+    'file_name',
+    'fileName',
+    'original_filename',
+    'originalFilename',
+    'original_file_name',
+    'originalFileName',
+    'document_name',
+    'documentName',
+    'document_title',
+    'documentTitle',
+    'filename',
+  ];
+
+  for (const key of keys) {
+    const value = record[key];
+    if (typeof value === 'string' && value.trim()) {
+      return value.trim();
+    }
+  }
+
+  if (allowGenericName && typeof record.name === 'string' && record.name.trim()) {
+    return record.name.trim();
+  }
+
+  const nestedCandidates = [
+    record.file,
+    record.document,
+    record.document_file,
+    record.documentFile,
+    record.linked_document,
+    record.linkedDocument,
+    record.source_document,
+    record.sourceDocument,
+    record.attachment,
+    record.attachment_file,
+    record.attachmentFile,
+    record.uploadedFile,
+    record.uploadedDocument,
+    record.payload,
+    record.metadata,
+    record.data,
+  ];
+  for (const candidate of nestedCandidates) {
+    if (candidate && typeof candidate === 'object') {
+      const nestedName: string = getAttachmentNameFromRecord(candidate as Record<string, unknown>, true);
+      if (nestedName) return nestedName;
+    }
+  }
+
+  return '';
 };
 
 const getDisplayUserText = (text: string) => {
@@ -118,6 +184,27 @@ const getDisplayUserText = (text: string) => {
     .filter(Boolean);
 
   return userLines.at(-1) ?? '';
+};
+
+const cleanHistoryMarkdown = (text: string) => {
+  return text
+    .split('\n')
+    .map((line) => line.trim())
+    .filter((line) => line && !/^[-*_]{3,}$/.test(line))
+    .map((line) =>
+      line
+        .replace(/^#{1,6}\s*/, '')
+        .replace(/\*\*(.+?)\*\*/g, '$1')
+        .replace(/\*(.+?)\*/g, '$1')
+        .replace(/_(.+?)_/g, '$1')
+        .replace(/`(.+?)`/g, '$1')
+        .replace(/\*\*/g, '')
+        .replace(/__/g, '')
+        .replace(/\B[*_]+\B/g, '')
+        .trim(),
+    )
+    .filter(Boolean)
+    .join('\n\n');
 };
 
 const ICON_MAP: Record<ChatIcon, { Icon: React.ElementType; colorClass: string }> = {
@@ -266,7 +353,7 @@ export function ChatHistoryPage({ onNavigate }: ChatHistoryPageProps = {}) {
     if (typeof value === 'string' && value.trim()) {
       const parsedDate = new Date(value);
       if (!Number.isNaN(parsedDate.getTime())) {
-        return parsedDate.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+        return formatUserTime(value);
       }
 
       return value;
@@ -294,6 +381,7 @@ export function ChatHistoryPage({ onNavigate }: ChatHistoryPageProps = {}) {
   const resolveIcon = (thread: Record<string, unknown>, messages: ChatMessage[]): ChatIcon => {
     const iconHint = String(thread.icon ?? thread.type ?? thread.kind ?? '').toLowerCase();
     if (iconHint.includes('doc') || iconHint.includes('file') || iconHint.includes('upload')) return 'doc';
+    if (iconHint.includes('flashcard') && iconHint.includes('quiz')) return 'mixed';
     if (iconHint.includes('flashcard')) return 'flashcards';
     if (iconHint.includes('quiz')) return 'quiz';
     if (iconHint.includes('code')) return 'code';
@@ -414,10 +502,10 @@ export function ChatHistoryPage({ onNavigate }: ChatHistoryPageProps = {}) {
         ? (payloadObject.questions as Record<string, unknown>[])
         : Array.isArray(payloadObject?.quizData)
           ? (payloadObject.quizData as Record<string, unknown>[])
-        : Array.isArray((payload as Record<string, any> | undefined)?.data?.questions)
-            ? ((payload as Record<string, any>)?.data?.questions as Record<string, unknown>[])
-          : Array.isArray((payload as Record<string, any> | undefined)?.data?.quizData)
-            ? ((payload as Record<string, any>)?.data?.quizData as Record<string, unknown>[])
+        : Array.isArray(((payload as Record<string, unknown> | undefined)?.data as Record<string, unknown> | undefined)?.questions)
+            ? (((payload as Record<string, unknown>).data as Record<string, unknown>).questions as Record<string, unknown>[])
+          : Array.isArray(((payload as Record<string, unknown> | undefined)?.data as Record<string, unknown> | undefined)?.quizData)
+            ? (((payload as Record<string, unknown>).data as Record<string, unknown>).quizData as Record<string, unknown>[])
             : artifactQuestions.length > 0
               ? artifactQuestions
               : payloadObject && payloadObject.question && (payloadObject.options || payloadObject.choices)
@@ -561,18 +649,24 @@ export function ChatHistoryPage({ onNavigate }: ChatHistoryPageProps = {}) {
       'input',
       'last_user_message',
       'lastUserMessage',
-      'uploaded_file',
-      'uploadedFile',
-      'file_name',
-      'fileName',
-      'document_name',
-      'documentName',
     ]);
+  };
+
+  const getThreadDocumentName = (thread: Record<string, unknown>, messages: ChatMessage[]) => {
+    const messageAttachment = messages
+      .map((message) => message.attachmentName || getAttachmentNameFromText(message.text))
+      .find(Boolean);
+    if (messageAttachment) return messageAttachment;
+
+    return getAttachmentNameFromRecord(thread);
   };
 
   const getThreadPreviewText = (thread: Record<string, unknown>, messages: ChatMessage[]) => {
     const userThreadText = getFirstUserThreadText(thread, messages);
-    if (userThreadText) return userThreadText;
+    if (userThreadText) return getDisplayUserText(userThreadText) || userThreadText;
+
+    const documentName = getThreadDocumentName(thread, messages);
+    if (documentName) return documentName;
 
     const preview = String(thread.preview ?? thread.summary ?? '').trim();
     if (preview && preview.toLowerCase() !== 'focusspark ai tutor') {
@@ -610,9 +704,14 @@ export function ChatHistoryPage({ onNavigate }: ChatHistoryPageProps = {}) {
 
   const resolveThreadDisplayName = (thread: Record<string, unknown>, messages: ChatMessage[], index: number) => {
     const fallbackName = `Chat ${index + 1}`;
+    const documentName = getThreadDocumentName(thread, messages);
+    if (documentName) {
+      return truncateThreadText(documentName);
+    }
+
     const userThreadText = getFirstUserThreadText(thread, messages);
     if (userThreadText) {
-      return truncateThreadText(userThreadText);
+      return truncateThreadText(getDisplayUserText(userThreadText) || userThreadText);
     }
 
     const title = String(thread.name ?? thread.title ?? thread.subject ?? '').trim();
@@ -628,17 +727,18 @@ export function ChatHistoryPage({ onNavigate }: ChatHistoryPageProps = {}) {
     return fallbackName;
   };
 
-  const extractThreadList = (payload: any): Record<string, unknown>[] => {
+  const extractThreadList = (payload: unknown): Record<string, unknown>[] => {
+    const payloadObject = payload as Record<string, unknown> | undefined;
     if (Array.isArray(payload)) {
       return payload as Record<string, unknown>[];
     }
 
     const candidates = [
-      payload?.results,
-      payload?.threads,
-      payload?.chats,
-      payload?.items,
-      payload?.data,
+      payloadObject?.results,
+      payloadObject?.threads,
+      payloadObject?.chats,
+      payloadObject?.items,
+      payloadObject?.data,
     ];
 
     for (const candidate of candidates) {
@@ -647,8 +747,8 @@ export function ChatHistoryPage({ onNavigate }: ChatHistoryPageProps = {}) {
       }
     }
 
-    if (payload?.data && typeof payload.data === 'object') {
-      return extractThreadList(payload.data);
+    if (payloadObject?.data && typeof payloadObject.data === 'object') {
+      return extractThreadList(payloadObject.data);
     }
 
     return [];
@@ -663,6 +763,7 @@ export function ChatHistoryPage({ onNavigate }: ChatHistoryPageProps = {}) {
       const userText = getRawText(rawMessage, ['user_message', 'userMessage', 'prompt', 'question', 'input']);
       const aiText = getRawText(rawMessage, ['ai_response', 'aiResponse', 'response', 'answer', 'output']);
       const messageText = getRawText(rawMessage, ['text', 'content', 'message']);
+      const attachmentName = getAttachmentNameFromRecord(rawMessage) || getAttachmentNameFromText(messageText || userText);
       const time = formatTimeLabel(rawMessage.created_at ?? rawMessage.timestamp, '');
       const chips = Array.isArray(rawMessage.chips)
         ? rawMessage.chips.filter((chip): chip is 'flashcard' | 'quiz' => chip === 'flashcard' || chip === 'quiz')
@@ -674,6 +775,7 @@ export function ChatHistoryPage({ onNavigate }: ChatHistoryPageProps = {}) {
           role: 'user',
           text: messageText,
           time,
+          attachmentName: attachmentName || undefined,
           backendMessageId: Number.isFinite(Number.parseInt(messageId, 10)) ? Number.parseInt(messageId, 10) : undefined,
         });
 
@@ -691,6 +793,7 @@ export function ChatHistoryPage({ onNavigate }: ChatHistoryPageProps = {}) {
           role: 'user',
           text: userText,
           time,
+          attachmentName: attachmentName || undefined,
           backendMessageId: Number.isFinite(Number.parseInt(messageId, 10)) ? Number.parseInt(messageId, 10) : undefined,
         });
 
@@ -712,6 +815,7 @@ export function ChatHistoryPage({ onNavigate }: ChatHistoryPageProps = {}) {
             role,
             text,
             time,
+            attachmentName: role === 'user' ? attachmentName || undefined : undefined,
             backendMessageId: Number.isFinite(Number.parseInt(messageId, 10)) ? Number.parseInt(messageId, 10) : undefined,
             chips: chips.length > 0 ? chips : undefined,
           });
@@ -836,8 +940,8 @@ export function ChatHistoryPage({ onNavigate }: ChatHistoryPageProps = {}) {
     const threadId = String(thread.id ?? thread.thread_id ?? thread.chat_id ?? index + 1);
     const rawMessages = Array.isArray(thread.messages)
       ? thread.messages
-      : Array.isArray((thread as Record<string, any>).data?.messages)
-        ? ((thread as Record<string, any>).data?.messages as unknown[])
+      : Array.isArray((thread.data as Record<string, unknown> | undefined)?.messages)
+        ? ((thread.data as Record<string, unknown>).messages as unknown[])
         : [];
     const timeSource = thread.updated_at ?? thread.created_at ?? thread.last_message_at ?? thread.timestamp;
     const time = formatTimeLabel(timeSource, 'Recently');
@@ -898,6 +1002,20 @@ export function ChatHistoryPage({ onNavigate }: ChatHistoryPageProps = {}) {
     }
   };
 
+  const chatLoadHelpersRef = useRef({
+    extractThreadList,
+    normalizeThread,
+    fetchAndNormalizeThread,
+  });
+
+  useEffect(() => {
+    chatLoadHelpersRef.current = {
+      extractThreadList,
+      normalizeThread,
+      fetchAndNormalizeThread,
+    };
+  });
+
   useEffect(() => {
     let cancelled = false;
 
@@ -908,20 +1026,23 @@ export function ChatHistoryPage({ onNavigate }: ChatHistoryPageProps = {}) {
       try {
         const authHeaders = await getAuthHeaders();
         const response = await axios.get(buildBackendUrl(BACKEND_ROUTES.chatThreads), { headers: authHeaders });
-        const rawThreads = extractThreadList(response.data);
+        const { extractThreadList: extractThreads, normalizeThread: normalizeChatThread, fetchAndNormalizeThread: fetchDetailedThread } = chatLoadHelpersRef.current;
+        const rawThreads = extractThreads(response.data);
 
         const normalizedChats = await Promise.all(
           rawThreads.map(async (thread: Record<string, unknown>, index: number) => {
-            const normalizedThread = await normalizeThread(thread, index, authHeaders);
+            const normalizedThread = await normalizeChatThread(thread, index, authHeaders);
             const hasFallbackTitle = normalizedThread.name === `Chat ${index + 1}`;
 
             if (hasFallbackTitle || normalizedThread.preview === 'Open chat history') {
-              const detailedThread = await fetchAndNormalizeThread(normalizedThread.id, index, authHeaders);
+              const detailedThread = await fetchDetailedThread(normalizedThread.id, index, authHeaders);
               if (detailedThread) {
                 return {
                   ...normalizedThread,
                   name: detailedThread.name,
-                  preview: detailedThread.messages.find((message) => message.role === 'user')?.text ?? detailedThread.preview,
+                  preview: getDisplayUserText(
+                    detailedThread.messages.find((message) => message.role === 'user')?.text ?? detailedThread.preview,
+                  ) || detailedThread.preview,
                   time: detailedThread.time,
                   icon: detailedThread.icon,
                   section: detailedThread.section,
@@ -1267,7 +1388,7 @@ export function ChatHistoryPage({ onNavigate }: ChatHistoryPageProps = {}) {
                               <Sparkles className="w-4 h-4 text-white" />
                             </div>
                             <div className="flex-1 min-w-0">
-                              <p className="text-foreground whitespace-pre-wrap leading-relaxed">{msg.text}</p>
+                              <p className="text-foreground whitespace-pre-wrap leading-relaxed">{cleanHistoryMarkdown(msg.text)}</p>
                               {msg.chips && msg.chips.length > 0 && <MessageChips chips={msg.chips} />}
                               <span className="text-xs text-muted-foreground mt-2 block">{msg.time}</span>
                             </div>
@@ -1280,7 +1401,7 @@ export function ChatHistoryPage({ onNavigate }: ChatHistoryPageProps = {}) {
                         <div className="w-full rounded-2xl px-6 py-4 border border-teal-500/30 bg-card dark:bg-gray-900/70 backdrop-blur-md shadow-lg">
                           <div className="flex items-center gap-3">
                             <Check className="w-5 h-5 text-teal-400 flex-shrink-0" />
-                            <p className="text-foreground">{msg.text}</p>
+                            <p className="text-foreground">{cleanHistoryMarkdown(msg.text)}</p>
                           </div>
                         </div>
                       )}
