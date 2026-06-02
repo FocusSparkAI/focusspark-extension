@@ -81,7 +81,7 @@ export function PomodoroProvider({ children }: { children: ReactNode }) {
     const nextCount = Math.max(0, Math.floor(count));
     sessionDistractionCountRef.current = nextCount;
     setSessionDistractionCountState(nextCount);
-  }, []);
+  }, [setSessionDistractionCountState]);
 
   useEffect(() => {
     if (phase === 'idle') {
@@ -172,7 +172,7 @@ export function PomodoroProvider({ children }: { children: ReactNode }) {
     activeStudyStartedAtRef.current = null;
     setActiveStudyStartedAt(null);
     void saveCompletedBackendStudySession(focusMinutes, actualDurationMinutes, startedAt);
-  }, [focusMinutes, saveCompletedBackendStudySession]);
+  }, [focusMinutes, saveCompletedBackendStudySession, setActiveStudyStartedAt]);
 
   const startSession = useCallback((type: PomodoroSessionType, customTimings?: { focusMinutes: number; breakMinutes: number }) => {
     const nextFocusMinutes =
@@ -221,7 +221,19 @@ export function PomodoroProvider({ children }: { children: ReactNode }) {
       duration: 3000,
       },
     );
-  }, [setSessionDistractionCount]);
+  }, [
+    setActiveStudyStartedAt,
+    setBreakMinutes,
+    setCurrentSessionId,
+    setFocusMinutes,
+    setIsActive,
+    setPhase,
+    setSessionDistractionCount,
+    setSessionType,
+    setSessions,
+    setTimeRemaining,
+    setTotalTime,
+  ]);
 
   const pauseSession = () => {
     setIsActive(false);
@@ -291,7 +303,7 @@ export function PomodoroProvider({ children }: { children: ReactNode }) {
     toast.success(`Break started! (${breakMinutes} minute${breakMinutes === 1 ? '' : 's'})`, {
       duration: 3000,
     });
-  }, [breakMinutes]);
+  }, [breakMinutes, setIsActive, setPhase, setTimeRemaining, setTotalTime]);
 
   const handlePhaseComplete = useCallback(() => {
     if (phase === 'focus') {
@@ -328,7 +340,20 @@ export function PomodoroProvider({ children }: { children: ReactNode }) {
         },
       });
     }
-  }, [completeBackendStudySession, currentSessionId, focusMinutes, phase, startBreak, startSession]);
+  }, [
+    completeBackendStudySession,
+    currentSessionId,
+    focusMinutes,
+    phase,
+    setCurrentSessionId,
+    setIsActive,
+    setPhase,
+    setSessions,
+    setTimeRemaining,
+    setTotalTime,
+    startBreak,
+    startSession,
+  ]);
 
   // Timer countdown effect
   useEffect(() => {

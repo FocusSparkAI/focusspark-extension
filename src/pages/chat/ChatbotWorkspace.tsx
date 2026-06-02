@@ -855,7 +855,7 @@ export function ChatbotWorkspace({ onNavigate }: ChatbotWorkspaceProps = {}) {
 
       if (!isStrictMode) {
         autoStrictModeActiveRef.current = true;
-        applyStrictMode(true);
+        void Promise.resolve().then(() => applyStrictMode(true));
         showTopToast('info', 'Strict Mode ON for this Pomodoro session.', {
           id: 'chat-strict-mode',
           duration: 3000,
@@ -872,7 +872,7 @@ export function ChatbotWorkspace({ onNavigate }: ChatbotWorkspaceProps = {}) {
         !strictModeManualOverrideRef.current;
 
       if (shouldRestoreOff) {
-        applyStrictMode(false);
+        void Promise.resolve().then(() => applyStrictMode(false));
       }
 
       autoStrictModeActiveRef.current = false;
