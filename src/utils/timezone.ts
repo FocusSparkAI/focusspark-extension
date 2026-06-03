@@ -1,4 +1,7 @@
+import { getStoredValue, setStoredValue } from './chromeStorage';
+
 const TIMEZONE_STORAGE_KEY = 'focusspark-timezone';
+let cachedTimeZone: string | null = null;
 
 const hasTimezoneOffset = (value: string) => /(?:Z|[+-]\d{2}:?\d{2})$/i.test(value.trim());
 
@@ -6,13 +9,20 @@ export function getDeviceTimeZone() {
   return Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC';
 }
 
+void getStoredValue(TIMEZONE_STORAGE_KEY).then((timeZone) => {
+  if (timeZone) {
+    cachedTimeZone = timeZone;
+  }
+});
+
 export function getUserTimeZone() {
-  return localStorage.getItem(TIMEZONE_STORAGE_KEY) || getDeviceTimeZone();
+  return cachedTimeZone || getDeviceTimeZone();
 }
 
 export function setUserTimeZone(timeZone: unknown) {
   if (typeof timeZone !== 'string' || !timeZone.trim()) return;
-  localStorage.setItem(TIMEZONE_STORAGE_KEY, timeZone.trim());
+  cachedTimeZone = timeZone.trim();
+  void setStoredValue(TIMEZONE_STORAGE_KEY, cachedTimeZone);
 }
 
 export function parseBackendDate(value: string | Date) {

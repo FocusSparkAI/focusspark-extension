@@ -40,7 +40,6 @@ import type { Deck, Flashcard } from '../../types/FlashcardTypes';
 import {
   CHAT_HISTORY_FLASHCARDS_KEY,
   getDifficultyBadgeClassName,
-  getReviewIntervalDays,
   getSourceBadgeClassName,
   isGenericChatFlashcardTitle,
   isSameLabel,
@@ -50,23 +49,45 @@ import {
 } from '../../types/FlashcardTypes';
 import { CHAT_FLASHCARD_PROGRESS_KEY } from '../../types/ChatTypes';
 import { formatUserDate } from '../../utils/timezone';
+import { getStoredValue, setStoredValue } from '../../utils/chromeStorage';
 
 interface FlashcardDeckScreenProps {
   onNavigate: (page: string) => void;
 }
 
-const readChatFlashcardProgress = (): Record<string, Record<string, unknown>> => {
+let chatFlashcardProgressCache: Record<string, Record<string, unknown>> = {};
+let flashcardReviewProgressCache: Record<string, Record<string, unknown>> = {};
+
+const FLASHCARD_REVIEW_PROGRESS_KEY = 'focusspark-flashcard-review-progress';
+
+const chatFlashcardProgressReady = getStoredValue(CHAT_FLASHCARD_PROGRESS_KEY).then((raw) => {
   try {
-    const raw = localStorage.getItem(CHAT_FLASHCARD_PROGRESS_KEY);
-    if (!raw) return {};
+    if (!raw) return;
     const parsed = JSON.parse(raw);
-    return parsed && typeof parsed === 'object' && !Array.isArray(parsed)
+    chatFlashcardProgressCache = parsed && typeof parsed === 'object' && !Array.isArray(parsed)
       ? parsed as Record<string, Record<string, unknown>>
       : {};
   } catch {
-    return {};
+    chatFlashcardProgressCache = {};
   }
-};
+});
+
+const readChatFlashcardProgress = (): Record<string, Record<string, unknown>> => chatFlashcardProgressCache;
+
+const flashcardReviewProgressReady = getStoredValue(FLASHCARD_REVIEW_PROGRESS_KEY).then((raw) => {
+  try {
+    if (!raw) return;
+    const parsed = JSON.parse(raw);
+    flashcardReviewProgressCache = parsed && typeof parsed === 'object' && !Array.isArray(parsed)
+      ? parsed as Record<string, Record<string, unknown>>
+      : {};
+  } catch {
+    flashcardReviewProgressCache = {};
+  }
+});
+
+const readFlashcardReviewProgress = (): Record<string, Record<string, unknown>> => flashcardReviewProgressCache;
+const storedFlashcardProgressReady = Promise.all([chatFlashcardProgressReady, flashcardReviewProgressReady]);
 
 const parseProgressDate = (value: unknown) => {
   if (!value) return undefined;
@@ -78,6 +99,45 @@ const getDeckProgressRecord = (deck: Deck) => {
   const records = readChatFlashcardProgress();
   return records[`id:${deck.id}`] ?? records[`title:${deck.title.trim().toLowerCase()}`];
 };
+
+const getCardProgressRecord = (deck: Deck, card: Flashcard) => {
+  const records = readFlashcardReviewProgress();
+  return records[`deck:${deck.id}:card:${card.id}`] ?? records[`card:${card.id}`];
+};
+
+const applyFlashcardReviewProgress = (deck: Deck): Deck => {
+  const cards = deck.cards.map((card) => {
+    const record = getCardProgressRecord(deck, card);
+    if (!record) return card;
+
+    const correctCount = Number(record.correctCount);
+    const lastReviewed = parseProgressDate(record.lastReviewed);
+
+    return {
+      ...card,
+      correctCount: Number.isFinite(correctCount) ? Math.max(card.correctCount, correctCount) : card.correctCount,
+      lastReviewed: lastReviewed ?? card.lastReviewed,
+    };
+  });
+
+  const lastReviewedTimes = cards
+    .map((card) => card.lastReviewed?.getTime())
+    .filter((time): time is number => typeof time === 'number' && Number.isFinite(time));
+  const reviewedCount = cards.filter((card) => card.lastReviewed).length;
+  const knownCount = cards.filter((card) => card.correctCount > 0).length;
+
+  return {
+    ...deck,
+    cards,
+    reviewCount: Math.max(deck.reviewCount, reviewedCount),
+    progress: deck.totalCards > 0 ? Math.max(deck.progress, Math.round((reviewedCount / deck.totalCards) * 100)) : deck.progress,
+    accuracy: reviewedCount > 0 ? Math.max(deck.accuracy, Math.round((knownCount / reviewedCount) * 100)) : deck.accuracy,
+    lastReviewed: deck.lastReviewed ?? (lastReviewedTimes.length > 0 ? new Date(Math.max(...lastReviewedTimes)) : undefined),
+  };
+};
+
+const applyStoredFlashcardProgress = (deck: Deck): Deck =>
+  applyFlashcardReviewProgress(applyChatFlashcardProgress(deck));
 
 const applyChatFlashcardProgress = (deck: Deck): Deck => {
   const record = getDeckProgressRecord(deck);
@@ -107,6 +167,23 @@ const applyChatFlashcardProgress = (deck: Deck): Deck => {
         : card,
     ),
   };
+};
+
+const saveFlashcardReviewProgress = async (deck: Deck, card: Flashcard) => {
+  const record = {
+    deckId: deck.id,
+    cardId: card.id,
+    correctCount: card.correctCount,
+    lastReviewed: card.lastReviewed?.toISOString(),
+  };
+
+  flashcardReviewProgressCache = {
+    ...flashcardReviewProgressCache,
+    [`deck:${deck.id}:card:${card.id}`]: record,
+    [`card:${card.id}`]: record,
+  };
+
+  await setStoredValue(FLASHCARD_REVIEW_PROGRESS_KEY, JSON.stringify(flashcardReviewProgressCache));
 };
 
 type FlashcardKeyboardHandlers = {
@@ -155,10 +232,11 @@ export function FlashcardDeckScreen({ onNavigate }: FlashcardDeckScreenProps) {
   const fetchDecks = async () => {
     setIsLoadingDecks(true);
     try {
+      await storedFlashcardProgressReady;
       const authHeaders = await getAuthHeaders();
       const res = await backendClient.get(BACKEND_ROUTES.flashcards, { headers: authHeaders });
       const data = Array.isArray(res.data) ? res.data : [];
-      const mappedDecks = data.map((d: unknown) => applyChatFlashcardProgress(mapDeck(d)));
+      const mappedDecks = data.map((d: unknown) => applyStoredFlashcardProgress(mapDeck(d)));
       setDecks(mappedDecks);
 
       const titledDecks = await Promise.all(
@@ -173,7 +251,7 @@ export function FlashcardDeckScreen({ onNavigate }: FlashcardDeckScreenProps) {
             const firstCardTitle = cards[0]?.front;
             if (!firstCardTitle) return deck;
 
-            return applyChatFlashcardProgress({
+            return applyStoredFlashcardProgress({
               ...deck,
               title: firstCardTitle,
               description: isGenericChatFlashcardTitle(deck.description) ? firstCardTitle : deck.description,
@@ -186,7 +264,7 @@ export function FlashcardDeckScreen({ onNavigate }: FlashcardDeckScreenProps) {
         }),
       );
 
-      setDecks(titledDecks.map((deck) => applyChatFlashcardProgress(deck)));
+      setDecks(titledDecks.map((deck) => applyStoredFlashcardProgress(deck)));
     } catch (err: unknown) {
       const status = getResponseStatus(err);
       if (status === 401) {
@@ -202,6 +280,7 @@ export function FlashcardDeckScreen({ onNavigate }: FlashcardDeckScreenProps) {
   const fetchDeckById = async (deck: Deck) => {
     setIsLoadingDeckDetails(true);
     try {
+      await storedFlashcardProgressReady;
       const authHeaders = await getAuthHeaders();
       const res = await backendClient.get(`${BACKEND_ROUTES.flashcards}/${deck.id}`, {
         headers: authHeaders,
@@ -212,7 +291,7 @@ export function FlashcardDeckScreen({ onNavigate }: FlashcardDeckScreenProps) {
         return;
       }
 
-      setSelectedDeck(applyChatFlashcardProgress({
+      setSelectedDeck(applyStoredFlashcardProgress({
         ...deck,
         title: isGenericChatFlashcardTitle(deck.title) ? cards[0].front : deck.title,
         description: isGenericChatFlashcardTitle(deck.description) ? cards[0].front : deck.description,
@@ -287,9 +366,10 @@ export function FlashcardDeckScreen({ onNavigate }: FlashcardDeckScreenProps) {
         toast.error('Unauthorized. Please sign in to create flashcards.');
       } else {
         try {
+          await storedFlashcardProgressReady;
           const authHeaders = await getAuthHeaders();
           const decksResponse = await backendClient.get(BACKEND_ROUTES.flashcards, { headers: authHeaders });
-          const refreshedDecks = (Array.isArray(decksResponse.data) ? decksResponse.data : []).map((deck: unknown) => applyChatFlashcardProgress(mapDeck(deck)));
+          const refreshedDecks = (Array.isArray(decksResponse.data) ? decksResponse.data : []).map((deck: unknown) => applyStoredFlashcardProgress(mapDeck(deck)));
           setDecks(refreshedDecks);
 
           const recoveredDeck = refreshedDecks.find((deck) =>
@@ -343,11 +423,12 @@ export function FlashcardDeckScreen({ onNavigate }: FlashcardDeckScreenProps) {
       if (pendingDeckId && Number.isFinite(Number(pendingDeckId))) {
         void (async () => {
           try {
+            await storedFlashcardProgressReady;
             const authHeaders = await getAuthHeaders();
             const decksResponse = await backendClient.get(BACKEND_ROUTES.flashcards, { headers: authHeaders });
             const deckList = Array.isArray(decksResponse.data) ? decksResponse.data : [];
             const matchingDeck = deckList.find((deck: Record<string, unknown>) => String(deck.id) === String(pendingDeckId));
-            const deck = applyChatFlashcardProgress(mapDeck(matchingDeck ?? {
+            const deck = applyStoredFlashcardProgress(mapDeck(matchingDeck ?? {
               id: pendingDeckId,
               title: payload.title,
               topic: payload.topic,
@@ -384,15 +465,16 @@ export function FlashcardDeckScreen({ onNavigate }: FlashcardDeckScreenProps) {
             source: 'Chat',
             difficulty,
             correctCount: Number(card.correctCount ?? card.correct_count ?? 0),
-            reviewInterval: Number(card.reviewInterval ?? card.review_interval ?? 1),
+            reviewInterval: 1,
           };
         })
         .filter((card) => card.front.length > 0 && card.back.length > 0);
 
       if (cards.length === 0) return;
 
-      void Promise.resolve().then(() => {
-        setSelectedDeck(applyChatFlashcardProgress({
+      void Promise.resolve().then(async () => {
+        await storedFlashcardProgressReady;
+        setSelectedDeck(applyStoredFlashcardProgress({
           id: String(payload.id ?? `chat-history-flashcards-${Date.now()}`),
           title: isGenericChatFlashcardTitle(payload.title) ? cards[0].front : normalizeDeckTitle(payload.title) || cards[0].front,
           description: payload.description || cards[0].front || 'Flashcards generated from chat history.',
@@ -471,16 +553,14 @@ export function FlashcardDeckScreen({ onNavigate }: FlashcardDeckScreenProps) {
     const newStreak = known ? streak + 1 : 0;
     setStreak(newStreak);
     setIsSavingReview(true);
-    const reviewInterval = getReviewIntervalDays(known);
-
     try {
       const authHeaders = await getAuthHeaders();
       await backendClient.put(
         BACKEND_ROUTES.flashcardReview.replace('{flashcard_id}', currentCard.id),
         {
           known,
-          repetition_mode: known ? 'known' : 'review_again',
-          review_interval_days: reviewInterval,
+          correct_count: known ? 1 : 0,
+          incorrect_count: known ? 0 : 1,
         },
         { headers: authHeaders },
       );
@@ -505,6 +585,12 @@ export function FlashcardDeckScreen({ onNavigate }: FlashcardDeckScreenProps) {
     const nextAccuracy = answeredCount > 0 ? Math.round((correctCount / answeredCount) * 100) : 0;
     const reviewedAt = new Date();
 
+    const reviewedCard = {
+      ...currentCard,
+      correctCount: known ? currentCard.correctCount + 1 : currentCard.correctCount,
+      lastReviewed: reviewedAt,
+    };
+
     const reviewedDeck = {
       ...selectedDeck,
       progress: nextProgress,
@@ -513,15 +599,11 @@ export function FlashcardDeckScreen({ onNavigate }: FlashcardDeckScreenProps) {
       lastReviewed: reviewedAt,
       cards: selectedDeck.cards.map((card) =>
         card.id === currentCard.id
-          ? {
-              ...card,
-              correctCount: known ? card.correctCount + 1 : card.correctCount,
-              reviewInterval,
-              lastReviewed: reviewedAt,
-            }
+          ? reviewedCard
           : card,
       ),
     };
+    void saveFlashcardReviewProgress(selectedDeck, reviewedCard);
     setSelectedDeck(reviewedDeck);
     setAnsweredCardIds((current) => new Set(current).add(currentCard.id));
     setAttemptResults(nextAttemptResults);
@@ -548,8 +630,6 @@ export function FlashcardDeckScreen({ onNavigate }: FlashcardDeckScreenProps) {
 
     if (known) {
       toast.success('Nice! Card marked as known.');
-    } else {
-      toast('Card added to review queue.');
     }
 
     // Move to next card

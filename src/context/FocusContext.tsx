@@ -1,22 +1,36 @@
-import React, { useCallback, useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import { FocusContext, type EmotionalState } from './focusContextValue';
+import { getStoredValue, setStoredValue } from '../utils/chromeStorage';
 
 export const FocusProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [isFocused, setIsFocused] = useState(false);
-  const [isDetectionEnabled, setDetectionEnabledState] = useState(() => {
-    const saved = localStorage.getItem('focusspark-camera-detection');
-    return saved === 'true';
-  });
+  const [isDetectionEnabled, setDetectionEnabledState] = useState(false);
   const [focusScore, setFocusScore] = useState(50); // Default to idle state
-  const [totalFocusedMinutes, setTotalFocusedMinutes] = useState(() => {
-    const saved = localStorage.getItem('focusspark-total-focus-time');
-    return saved ? parseInt(saved, 10) : 0;
-  });
+  const [totalFocusedMinutes, setTotalFocusedMinutes] = useState(0);
   const [emotionalState, setEmotionalState] = useState<EmotionalState>('neutral');
+
+  useEffect(() => {
+    let isMounted = true;
+
+    void Promise.all([
+      getStoredValue('focusspark-camera-detection'),
+      getStoredValue('focusspark-total-focus-time'),
+    ]).then(([savedDetection, savedFocusTime]) => {
+      if (!isMounted) return;
+      setDetectionEnabledState(savedDetection === 'true');
+
+      const parsedFocusTime = savedFocusTime ? parseInt(savedFocusTime, 10) : 0;
+      setTotalFocusedMinutes(Number.isFinite(parsedFocusTime) ? parsedFocusTime : 0);
+    });
+
+    return () => {
+      isMounted = false;
+    };
+  }, []);
 
   const setIsDetectionEnabled = useCallback((value: boolean, options: { persist?: boolean } = {}) => {
     if (options.persist !== false) {
-      localStorage.setItem('focusspark-camera-detection', value.toString());
+      void setStoredValue('focusspark-camera-detection', value.toString());
     }
     setDetectionEnabledState(value);
 
@@ -29,7 +43,7 @@ export const FocusProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   const addFocusedTime = useCallback((minutes: number) => {
     setTotalFocusedMinutes((prev) => {
       const newTotal = prev + minutes;
-      localStorage.setItem('focusspark-total-focus-time', newTotal.toString());
+      void setStoredValue('focusspark-total-focus-time', newTotal.toString());
       return newTotal;
     });
   }, []);

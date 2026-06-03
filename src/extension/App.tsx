@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useMemo, useRef } from 'react';
 import { Navigate, Route, Routes, useLocation, useNavigate } from 'react-router-dom';
 import { Navigation } from '../components/layout/Navigation';
 import { ExtensionHomePage } from '../pages/home/ExtensionHomePage';
@@ -12,9 +12,11 @@ import { FocusToolsPage } from '../pages/webcam/FocusToolsPage';
 import { Footer } from '../components/layout/Footer';
 import { ThemeToggle } from '../components/shared/ThemeToggle';
 import { Toaster } from '../components/ui/sonner';
+import { toast } from 'sonner';
 import { FocusProvider } from '../context/FocusContext';
 import { PomodoroProvider } from '../context/PomodoroContext';
 import { usePomodoro } from '../hooks/usePomodoro';
+import { getStoredValue, setStoredValue } from '../utils/chromeStorage';
 import { clearAccessToken } from '../utils/backendClient';
 import { FRONTEND_ROUTES, buildFrontendUrl } from '../config/frontend';
 import { ProtectedRoute } from './ProtectedRoute';
@@ -59,8 +61,8 @@ const SPECIAL_PAGES = new Set([
   'webcam-test',
 ]);
 
-const readSavedPomodoroMinutes = (key: string, fallback: number, min: number, max: number) => {
-  const value = Number(localStorage.getItem(key));
+const readSavedPomodoroMinutes = async (key: string, fallback: number, min: number, max: number) => {
+  const value = Number(await getStoredValue(key));
   if (!Number.isFinite(value)) return fallback;
   return Math.min(max, Math.max(min, value));
 };
@@ -88,14 +90,40 @@ function AppContent() {
   const isPomodoroLocked = phase === 'focus' || phase === 'paused';
   const lastSyncedPomodoroPhaseRef = useRef<string | null>(null);
   const lastBreakEndsAtRef = useRef<number | null>(null);
+  const [isStrictModeLocked, setIsStrictModeLocked] = useState(false);
+  const guardedLocation = useMemo(() => {
+    if (!isStrictModeLocked || currentPage === 'chatbot') return location;
+    return {
+      ...location,
+      pathname: getPathFromPage('chatbot'),
+    };
+  }, [currentPage, isStrictModeLocked, location]);
 
-  const [theme, setTheme] = useState<'light' | 'dark'>(() => {
-    const savedTheme = localStorage.getItem('focusspark-theme');
-    if (savedTheme === 'light' || savedTheme === 'dark') return savedTheme;
-    return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
-  });
+  const [theme, setTheme] = useState<'light' | 'dark'>(() =>
+    window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light',
+  );
 
-  // Initialize theme from localStorage or system preference
+  useEffect(() => {
+    let isMounted = true;
+
+    void getStoredValue('focusspark-theme').then((savedTheme) => {
+      if (!isMounted) return;
+      if (savedTheme === 'light' || savedTheme === 'dark') {
+        setTheme(savedTheme);
+      }
+    });
+
+    void getStoredValue('focusspark-strict-mode').then((storedStrictMode) => {
+      if (!isMounted) return;
+      setIsStrictModeLocked(storedStrictMode === 'true');
+    });
+
+    return () => {
+      isMounted = false;
+    };
+  }, []);
+
+  // Initialize theme from Chrome storage or system preference
   useEffect(() => {
     // Prevent flash of unstyled content
     document.documentElement.classList.add('preload');
@@ -116,7 +144,7 @@ function AppContent() {
   const toggleTheme = () => {
     const newTheme = theme === 'dark' ? 'light' : 'dark';
     setTheme(newTheme);
-    localStorage.setItem('focusspark-theme', newTheme);
+    void setStoredValue('focusspark-theme', newTheme);
 
     if (newTheme === 'dark') {
       document.documentElement.classList.add('dark');
@@ -135,6 +163,16 @@ function AppContent() {
       navigate(getPathFromPage('chatbot'), { replace: true });
     }
   }, [currentPage, isPomodoroLocked, navigate]);
+
+  useEffect(() => {
+    if (isStrictModeLocked && currentPage !== 'chatbot') {
+      toast.info('Strict Mode is on. Stay in the AI Tutor workspace to keep focus.', {
+        id: 'strict-mode-route-blocked',
+        duration: 3000,
+      });
+      navigate(getPathFromPage('chatbot'), { replace: true });
+    }
+  }, [currentPage, isStrictModeLocked, navigate]);
 
   useEffect(() => {
     const previousPhase = lastSyncedPomodoroPhaseRef.current;
@@ -198,7 +236,16 @@ function AppContent() {
     return () => window.removeEventListener('beforeunload', handleBeforeUnload);
   }, [isPomodoroLocked]);
 
-  const handleNavigate = (page: string) => {
+  const handleNavigate = async (page: string) => {
+    if (isStrictModeLocked && currentPage === 'chatbot' && page !== 'chatbot') {
+      toast.info('Strict Mode is on. Stay in the AI Tutor workspace to keep focus.', {
+        id: 'strict-mode-navigation-blocked',
+        duration: 3000,
+      });
+      navigate(getPathFromPage('chatbot'));
+      return;
+    }
+
     if (page === 'signup' || page === 'forgot-password') {
       const frontendRoute =
         page === 'signup' ? FRONTEND_ROUTES.signup : FRONTEND_ROUTES.forgotPassword;
@@ -212,8 +259,10 @@ function AppContent() {
     }
 
     if (page === 'quick-start') {
-      const focusMinutes = readSavedPomodoroMinutes('focusspark-extension-focus-minutes', 25, 5, 120);
-      const breakMinutes = readSavedPomodoroMinutes('focusspark-extension-break-minutes', 5, 1, 60);
+      const [focusMinutes, breakMinutes] = await Promise.all([
+        readSavedPomodoroMinutes('focusspark-extension-focus-minutes', 25, 5, 120),
+        readSavedPomodoroMinutes('focusspark-extension-break-minutes', 5, 1, 60),
+      ]);
 
       startSession('custom', { focusMinutes, breakMinutes });
       navigate(getPathFromPage('chatbot'));
@@ -259,7 +308,7 @@ function AppContent() {
         />
       )}
 
-      <Routes>
+      <Routes location={guardedLocation}>
         <Route
           path="/"
           element={<ExtensionHomePage onNavigate={handleNavigate} />}
@@ -284,7 +333,10 @@ function AppContent() {
           path="/chatbot"
           element={
             <ProtectedRoute>
-              <ChatbotWorkspace onNavigate={handleNavigate} />
+              <ChatbotWorkspace
+                onNavigate={handleNavigate}
+                onStrictModeChange={setIsStrictModeLocked}
+              />
             </ProtectedRoute>
           }
         />

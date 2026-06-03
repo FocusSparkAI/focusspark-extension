@@ -1,12 +1,13 @@
 import axios from 'axios';
 import { BACKEND_BASE_URL } from '../config/backend';
 import type { InternalAxiosRequestConfig } from 'axios';
+import { getStoredValue, removeStoredValue, setStoredValue } from './chromeStorage';
 
 const TOKEN_KEY = 'fs_access_token';
 
 export async function getAccessToken(): Promise<string | null> {
   try {
-    const token = localStorage.getItem(TOKEN_KEY);
+    const token = await getStoredValue(TOKEN_KEY);
     return token && token.length > 0 ? token : null;
   } catch {
     return null;
@@ -15,7 +16,7 @@ export async function getAccessToken(): Promise<string | null> {
 
 export async function setAccessToken(token: string): Promise<void> {
   try {
-    localStorage.setItem(TOKEN_KEY, token);
+    await setStoredValue(TOKEN_KEY, token);
   } catch {
     // ignore
   }
@@ -23,7 +24,7 @@ export async function setAccessToken(token: string): Promise<void> {
 
 export async function clearAccessToken(): Promise<void> {
   try {
-    localStorage.removeItem(TOKEN_KEY);
+    await removeStoredValue(TOKEN_KEY);
   } catch {
     // ignore
   }

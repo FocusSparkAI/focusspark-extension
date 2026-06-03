@@ -36,6 +36,7 @@ import { ChatMessageList } from '../../components/chat/ChatMessageList';
 import { ChatSidePanel } from '../../components/chat/ChatSidePanel';
 import { UploadModal } from '../../components/chat/UploadModal';
 import { useChatbotWorkspace } from '../../hooks/chat/useChatbotWorkspace';
+import { getStoredValue, setStoredValue } from '../../utils/chromeStorage';
 import {
   AI_MODELS,
   CHAT_FLASHCARD_PROGRESS_KEY,
@@ -49,6 +50,7 @@ import {
 
 interface ChatbotWorkspaceProps {
   onNavigate?: (page: string) => void;
+  onStrictModeChange?: (enabled: boolean) => void;
 }
 
 type ChromeWorkspaceApi = {
@@ -67,9 +69,9 @@ type ChromeWorkspaceApi = {
 const createRuntimeId = () => `runtime-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 const createRuntimeDate = () => new Date();
 
-const readStoredRecord = (key: string): Record<string, unknown> => {
+const readStoredRecord = async (key: string): Promise<Record<string, unknown>> => {
   try {
-    const raw = localStorage.getItem(key);
+    const raw = await getStoredValue(key);
     if (!raw) return {};
     const parsed = JSON.parse(raw);
     return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed as Record<string, unknown> : {};
@@ -98,7 +100,7 @@ const getProgressKeys = (message: Pick<Message, 'artifactId' | 'artifactTitle' |
   ].filter(Boolean);
 };
 
-export function ChatbotWorkspace({ onNavigate }: ChatbotWorkspaceProps = {}) {
+export function ChatbotWorkspace({ onNavigate, onStrictModeChange }: ChatbotWorkspaceProps = {}) {
   const chromeApi = (globalThis as typeof globalThis & { chrome?: ChromeWorkspaceApi }).chrome;
   const { setIsFocused, isDetectionEnabled, setIsDetectionEnabled, focusScore: contextFocusScore, setFocusScore: setContextFocusScore, setEmotionalState } = useFocus();
   const { phase, setSessionDistractionCount } = usePomodoro();
@@ -237,9 +239,7 @@ export function ChatbotWorkspace({ onNavigate }: ChatbotWorkspaceProps = {}) {
   const strictModeBeforePomodoroRef = useRef(false);
   const autoStrictModeActiveRef = useRef(false);
   const strictModeManualOverrideRef = useRef(false);
-  const [isStrictMode, setIsStrictMode] = useState(() => {
-    return localStorage.getItem('focusspark-strict-mode') === 'true';
-  });
+  const [isStrictMode, setIsStrictMode] = useState(false);
   const [distractionCount, setDistractionCount] = useState(0);
   const focusTabIdRef = useRef<number | null>(null);
   const detectionEnabledRef = useRef(isDetectionEnabled);
@@ -248,6 +248,21 @@ export function ChatbotWorkspace({ onNavigate }: ChatbotWorkspaceProps = {}) {
   useEffect(() => {
     detectionEnabledRef.current = isDetectionEnabled;
   }, [isDetectionEnabled]);
+
+  useEffect(() => {
+    let isMounted = true;
+
+    void getStoredValue('focusspark-strict-mode').then((storedStrictMode) => {
+      if (!isMounted) return;
+      const nextStrictMode = storedStrictMode === 'true';
+      setIsStrictMode(nextStrictMode);
+      onStrictModeChange?.(nextStrictMode);
+    });
+
+    return () => {
+      isMounted = false;
+    };
+  }, [onStrictModeChange]);
 
   useEffect(() => {
     if (phase === 'focus') {
@@ -451,7 +466,8 @@ export function ChatbotWorkspace({ onNavigate }: ChatbotWorkspaceProps = {}) {
       autoStrictModeActiveRef.current = false;
     }
     setIsStrictMode(nextMode);
-    localStorage.setItem('focusspark-strict-mode', String(nextMode));
+    onStrictModeChange?.(nextMode);
+    void setStoredValue('focusspark-strict-mode', String(nextMode));
     setDistractionCount(0);
     strictDistractionCountRef.current = 0;
     syncStrictModeToBackground(nextMode);
@@ -512,13 +528,26 @@ export function ChatbotWorkspace({ onNavigate }: ChatbotWorkspaceProps = {}) {
         }
       }
 
+      if (runtimeMessage.type === 'POMODORO_DISTRACTION_DETECTED') {
+        const nextCount = Number(runtimeMessage.count || 1);
+        strictDistractionCountRef.current = nextCount;
+        setDistractionCount(nextCount);
+        setSessionDistractionCount(nextCount);
+
+        showTopToast('warning', 'Tab changed during Pomodoro. Stay in your focus workspace.', {
+          id: 'chat-pomodoro-tab-changed',
+          duration: 3500,
+        });
+      }
+
       if (runtimeMessage.type === 'DISTRACTION_TAB_CLOSED') {
         if (!isStrictMode) return;
       }
 
       if (runtimeMessage.type === 'STRICT_MODE_FORCED_OFF') {
         setIsStrictMode(false);
-        localStorage.setItem('focusspark-strict-mode', 'false');
+        onStrictModeChange?.(false);
+        void setStoredValue('focusspark-strict-mode', 'false');
         showTopToast('info', 'Strict Mode was disabled because the focus tab was closed.', {
           id: 'chat-strict-mode-forced-off',
           duration: 4000,
@@ -532,7 +561,7 @@ export function ChatbotWorkspace({ onNavigate }: ChatbotWorkspaceProps = {}) {
         chromeApi.runtime.onMessage.removeListener(listener);
       }
     };
-  }, [chromeApi?.runtime?.onMessage, isStrictMode, phase, setSessionDistractionCount, showTopToast]);
+  }, [chromeApi?.runtime?.onMessage, isStrictMode, onStrictModeChange, phase, setSessionDistractionCount, showTopToast]);
 
   useEffect(() => {
     const onVisibilityChange = () => {
@@ -543,6 +572,17 @@ export function ChatbotWorkspace({ onNavigate }: ChatbotWorkspaceProps = {}) {
       tabSwitchWarnCooldownRef.current = now;
 
       if (isStrictMode) {
+        const nextCount = strictDistractionCountRef.current + 1;
+        strictDistractionCountRef.current = nextCount;
+        setDistractionCount(nextCount);
+        if (phase === 'focus' || phase === 'paused') {
+          setSessionDistractionCount(nextCount);
+        }
+
+        showTopToast('warning', 'You switched tabs or apps. Return to your study session.', {
+          id: 'chat-strict-mode-app-switch',
+          duration: 3500,
+        });
         return;
       }
 
@@ -554,7 +594,32 @@ export function ChatbotWorkspace({ onNavigate }: ChatbotWorkspaceProps = {}) {
 
     document.addEventListener('visibilitychange', onVisibilityChange);
     return () => document.removeEventListener('visibilitychange', onVisibilityChange);
-  }, [isStrictMode, showTopToast]);
+  }, [isStrictMode, phase, setSessionDistractionCount, showTopToast]);
+
+  useEffect(() => {
+    const onWindowBlur = () => {
+      if (!isStrictMode) return;
+
+      const now = Date.now();
+      if (now - tabSwitchWarnCooldownRef.current < 2000) return;
+      tabSwitchWarnCooldownRef.current = now;
+
+      const nextCount = strictDistractionCountRef.current + 1;
+      strictDistractionCountRef.current = nextCount;
+      setDistractionCount(nextCount);
+      if (phase === 'focus' || phase === 'paused') {
+        setSessionDistractionCount(nextCount);
+      }
+
+      showTopToast('warning', 'You switched tabs or apps. Return to your study session.', {
+        id: 'chat-strict-mode-app-blur',
+        duration: 3500,
+      });
+    };
+
+    window.addEventListener('blur', onWindowBlur);
+    return () => window.removeEventListener('blur', onWindowBlur);
+  }, [isStrictMode, phase, setSessionDistractionCount, showTopToast]);
   // Hide welcome animation after 2 seconds
   useEffect(() => {
     const timer = setTimeout(() => {
@@ -569,65 +634,85 @@ export function ChatbotWorkspace({ onNavigate }: ChatbotWorkspaceProps = {}) {
   }, [messages]);
 
   useEffect(() => {
-    const records = { ...readStoredRecord(CHAT_QUIZ_PROGRESS_KEY) };
-    let changed = false;
+    let isMounted = true;
 
-    messages.forEach((message) => {
-      if (message.type !== 'quiz' || !message.quizData?.length) return;
+    void readStoredRecord(CHAT_QUIZ_PROGRESS_KEY).then((storedRecords) => {
+      if (!isMounted) return;
 
-      const answered = message.quizData.filter((question) => typeof quizAnswers[question.id] === 'number');
-      if (answered.length === 0) return;
+      const records = { ...storedRecords };
+      let changed = false;
 
-      const correct = answered.filter((question) => quizAnswers[question.id] === question.correctAnswer).length;
-      const score = Math.round((correct / message.quizData.length) * 100);
-      const record = {
-        totalAttempts: 1,
-        answered: answered.length,
-        correct,
-        bestScore: score,
-        averageScore: score,
-        lastAttempted: new Date().toISOString(),
-      };
+      messages.forEach((message) => {
+        if (message.type !== 'quiz' || !message.quizData?.length) return;
 
-      getProgressKeys(message).forEach((key) => {
-        records[key] = record;
-        changed = true;
+        const answered = message.quizData.filter((question) => typeof quizAnswers[question.id] === 'number');
+        if (answered.length === 0) return;
+
+        const correct = answered.filter((question) => quizAnswers[question.id] === question.correctAnswer).length;
+        const score = Math.round((correct / message.quizData.length) * 100);
+        const record = {
+          totalAttempts: 1,
+          answered: answered.length,
+          correct,
+          bestScore: score,
+          averageScore: score,
+          lastAttempted: new Date().toISOString(),
+        };
+
+        getProgressKeys(message).forEach((key) => {
+          records[key] = record;
+          changed = true;
+        });
       });
+
+      if (changed) {
+        void setStoredValue(CHAT_QUIZ_PROGRESS_KEY, JSON.stringify(records));
+      }
     });
 
-    if (changed) {
-      localStorage.setItem(CHAT_QUIZ_PROGRESS_KEY, JSON.stringify(records));
-    }
+    return () => {
+      isMounted = false;
+    };
   }, [messages, quizAnswers]);
 
   useEffect(() => {
-    const records = { ...readStoredRecord(CHAT_FLASHCARD_PROGRESS_KEY) };
-    let changed = false;
+    let isMounted = true;
 
-    messages.forEach((message) => {
-      if (message.type !== 'flashcard' || !message.flashcards?.length) return;
+    void readStoredRecord(CHAT_FLASHCARD_PROGRESS_KEY).then((storedRecords) => {
+      if (!isMounted) return;
 
-      const reviewed = message.flashcards.filter((card) => card.known);
-      if (reviewed.length === 0) return;
+      const records = { ...storedRecords };
+      let changed = false;
 
-      const progress = Math.round((reviewed.length / message.flashcards.length) * 100);
-      const record = {
-        progress,
-        accuracy: 100,
-        reviewCount: reviewed.length,
-        knownCardIds: reviewed.map((card) => card.id),
-        lastReviewed: new Date().toISOString(),
-      };
+      messages.forEach((message) => {
+        if (message.type !== 'flashcard' || !message.flashcards?.length) return;
 
-      getProgressKeys(message).forEach((key) => {
-        records[key] = record;
-        changed = true;
+        const reviewed = message.flashcards.filter((card) => card.known);
+        if (reviewed.length === 0) return;
+
+        const progress = Math.round((reviewed.length / message.flashcards.length) * 100);
+        const record = {
+          progress,
+          accuracy: 100,
+          reviewCount: reviewed.length,
+          knownCardIds: reviewed.map((card) => card.id),
+          lastReviewed: new Date().toISOString(),
+        };
+
+        getProgressKeys(message).forEach((key) => {
+          records[key] = record;
+          changed = true;
+        });
       });
+
+      if (changed) {
+        void setStoredValue(CHAT_FLASHCARD_PROGRESS_KEY, JSON.stringify(records));
+      }
     });
 
-    if (changed) {
-      localStorage.setItem(CHAT_FLASHCARD_PROGRESS_KEY, JSON.stringify(records));
-    }
+    return () => {
+      isMounted = false;
+    };
   }, [messages]);
 
   // Emotional Feedback Popup - show at camera-off start, then periodically.
@@ -836,13 +921,14 @@ export function ChatbotWorkspace({ onNavigate }: ChatbotWorkspaceProps = {}) {
 
   const applyStrictMode = useCallback((enabled: boolean) => {
     setIsStrictMode(enabled);
-    localStorage.setItem('focusspark-strict-mode', String(enabled));
+    onStrictModeChange?.(enabled);
+    void setStoredValue('focusspark-strict-mode', String(enabled));
     if (!enabled) {
       setDistractionCount(0);
       strictDistractionCountRef.current = 0;
     }
     syncStrictModeToBackground(enabled);
-  }, [syncStrictModeToBackground]);
+  }, [onStrictModeChange, syncStrictModeToBackground]);
 
   useEffect(() => {
     const previousPhase = previousPomodoroPhaseRef.current;

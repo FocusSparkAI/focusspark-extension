@@ -27,6 +27,7 @@ import { FRONTEND_ROUTES, buildFrontendUrl } from '../../config/frontend';
 import backendClient, { getAuthHeaders } from '../../utils/backendClient';
 import { playSoundForNewUnreadNotifications, unlockNotificationSound } from '../../utils/notificationSound';
 import { formatUserDate, parseBackendDate, setUserTimeZone } from '../../utils/timezone';
+import { setStoredValue } from '../../utils/chromeStorage';
 
 interface DashboardNavbarProps {
   onLogout: () => void | Promise<void>;
@@ -247,7 +248,7 @@ export function DashboardNavbar({ onLogout }: DashboardNavbarProps) {
   const toggleTheme = () => {
     const nextDark = !isDark;
     setIsDark(nextDark);
-    localStorage.setItem('focusspark-theme', nextDark ? 'dark' : 'light');
+    void setStoredValue('focusspark-theme', nextDark ? 'dark' : 'light');
     document.documentElement.classList.toggle('dark', nextDark);
   };
 

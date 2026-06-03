@@ -2,6 +2,7 @@ import { useCallback, useState, useEffect, useRef, type ReactNode } from 'react'
 import { toast } from 'sonner';
 import { BACKEND_ROUTES } from '../config/backend';
 import backendClient, { getAuthHeaders } from '../utils/backendClient';
+import { getStoredValue, removeStoredValue, setStoredValue } from '../utils/chromeStorage';
 import {
   PomodoroContext,
   type PomodoroPhase,
@@ -24,9 +25,8 @@ type StoredPomodoroSession = {
   sessionDistractionCount?: number;
 };
 
-function readStoredPomodoroSession(): StoredPomodoroSession | null {
+function parseStoredPomodoroSession(raw: string | null): StoredPomodoroSession | null {
   try {
-    const raw = localStorage.getItem(POMODORO_STORAGE_KEY);
     if (!raw) return null;
 
     const stored = JSON.parse(raw) as StoredPomodoroSession;
@@ -45,22 +45,18 @@ function readStoredPomodoroSession(): StoredPomodoroSession | null {
 }
 
 export function PomodoroProvider({ children }: { children: ReactNode }) {
-  const initialStoredSession = readStoredPomodoroSession();
-  const [isActive, setIsActive] = useState(initialStoredSession?.isActive ?? false);
-  const [phase, setPhase] = useState<PomodoroPhase>(initialStoredSession?.phase ?? 'idle');
-  const [sessionType, setSessionType] = useState<PomodoroSessionType>(initialStoredSession?.sessionType ?? '25/5');
-  const [focusMinutes, setFocusMinutes] = useState(initialStoredSession?.focusMinutes ?? 25);
-  const [breakMinutes, setBreakMinutes] = useState(initialStoredSession?.breakMinutes ?? 5);
-  const [timeRemaining, setTimeRemaining] = useState(initialStoredSession?.timeRemaining ?? 0);
-  const [totalTime, setTotalTime] = useState(initialStoredSession?.totalTime ?? 0);
+  const [isActive, setIsActive] = useState(false);
+  const [phase, setPhase] = useState<PomodoroPhase>('idle');
+  const [sessionType, setSessionType] = useState<PomodoroSessionType>('25/5');
+  const [focusMinutes, setFocusMinutes] = useState(25);
+  const [breakMinutes, setBreakMinutes] = useState(5);
+  const [timeRemaining, setTimeRemaining] = useState(0);
+  const [totalTime, setTotalTime] = useState(0);
   const [sessions, setSessions] = useState<PomodoroSession[]>([]);
   const [currentSessionId, setCurrentSessionId] = useState<string | null>(null);
-  const [activeStudyStartedAt, setActiveStudyStartedAt] = useState<Date | null>(
-    initialStoredSession?.startedAt ? new Date(initialStoredSession.startedAt) : null,
-  );
-  const [sessionDistractionCount, setSessionDistractionCountState] = useState(
-    initialStoredSession?.sessionDistractionCount ?? 0,
-  );
+  const [activeStudyStartedAt, setActiveStudyStartedAt] = useState<Date | null>(null);
+  const [sessionDistractionCount, setSessionDistractionCountState] = useState(0);
+  const [storageHydrated, setStorageHydrated] = useState(false);
   
   const milestoneTrackingRef = useRef({
     fifteenMinutes: false,
@@ -68,10 +64,39 @@ export function PomodoroProvider({ children }: { children: ReactNode }) {
   });
   
   const intervalRef = useRef<number | null>(null);
-  const activeStudyStartedAtRef = useRef<Date | null>(
-    initialStoredSession?.startedAt ? new Date(initialStoredSession.startedAt) : null,
-  );
-  const sessionDistractionCountRef = useRef(initialStoredSession?.sessionDistractionCount ?? 0);
+  const activeStudyStartedAtRef = useRef<Date | null>(null);
+  const sessionDistractionCountRef = useRef(0);
+
+  useEffect(() => {
+    let isMounted = true;
+
+    void getStoredValue(POMODORO_STORAGE_KEY).then((raw) => {
+      if (!isMounted) return;
+
+      const stored = parseStoredPomodoroSession(raw);
+      if (stored) {
+        const startedAt = stored.startedAt ? new Date(stored.startedAt) : null;
+
+        setIsActive(stored.isActive);
+        setPhase(stored.phase);
+        setSessionType(stored.sessionType);
+        setFocusMinutes(stored.focusMinutes);
+        setBreakMinutes(stored.breakMinutes);
+        setTimeRemaining(stored.timeRemaining);
+        setTotalTime(stored.totalTime);
+        setActiveStudyStartedAt(startedAt);
+        setSessionDistractionCountState(stored.sessionDistractionCount ?? 0);
+        activeStudyStartedAtRef.current = startedAt;
+        sessionDistractionCountRef.current = stored.sessionDistractionCount ?? 0;
+      }
+
+      setStorageHydrated(true);
+    });
+
+    return () => {
+      isMounted = false;
+    };
+  }, []);
 
   useEffect(() => {
     activeStudyStartedAtRef.current = activeStudyStartedAt;
@@ -84,8 +109,10 @@ export function PomodoroProvider({ children }: { children: ReactNode }) {
   }, [setSessionDistractionCountState]);
 
   useEffect(() => {
+    if (!storageHydrated) return;
+
     if (phase === 'idle') {
-      localStorage.removeItem(POMODORO_STORAGE_KEY);
+      void removeStoredValue(POMODORO_STORAGE_KEY);
       return;
     }
 
@@ -102,8 +129,8 @@ export function PomodoroProvider({ children }: { children: ReactNode }) {
       sessionDistractionCount,
     };
 
-    localStorage.setItem(POMODORO_STORAGE_KEY, JSON.stringify(stored));
-  }, [phase, isActive, sessionType, focusMinutes, breakMinutes, timeRemaining, totalTime, activeStudyStartedAt, sessionDistractionCount]);
+    void setStoredValue(POMODORO_STORAGE_KEY, JSON.stringify(stored));
+  }, [phase, isActive, sessionType, focusMinutes, breakMinutes, timeRemaining, totalTime, activeStudyStartedAt, sessionDistractionCount, storageHydrated]);
 
   // Milestone notifications
   useEffect(() => {
@@ -271,6 +298,9 @@ export function PomodoroProvider({ children }: { children: ReactNode }) {
 
   const completeEarly = () => {
     setIsActive(false);
+    setPhase('idle');
+    setTimeRemaining(0);
+    setTotalTime(0);
     const actualDurationMinutes = Math.max(0, Math.ceil((totalTime - timeRemaining) / 60));
     void completeBackendStudySession(actualDurationMinutes);
     
@@ -282,7 +312,10 @@ export function PomodoroProvider({ children }: { children: ReactNode }) {
         )
       );
     }
-    
+
+    setCurrentSessionId(null);
+    setSessionDistractionCount(0);
+
     toast.success('Session marked complete. Start break?', {
       duration: 8000,
       action: {

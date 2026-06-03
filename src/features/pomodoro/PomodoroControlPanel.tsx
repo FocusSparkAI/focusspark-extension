@@ -93,7 +93,7 @@ export function PomodoroControlPanel({ isOpen, onClose }: PomodoroControlPanelPr
                       size="lg"
                     >
                       <CheckCircle className="w-5 h-5 mr-2 text-green-400" />
-                      Complete session
+                      Finish early
                     </Button>
 
                     <Button
