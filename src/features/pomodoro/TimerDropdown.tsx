@@ -1,8 +1,9 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { Clock, X } from 'lucide-react';
 import { Button } from '../../components/ui/button';
 import { usePomodoro } from '../../hooks/usePomodoro';
+import { getStoredValue } from '../../utils/chromeStorage';
 
 interface TimerDropdownProps {
   isOpen: boolean;
@@ -10,8 +11,8 @@ interface TimerDropdownProps {
   anchorElement?: HTMLElement | null;
 }
 
-const readSavedMinutes = (key: string, fallback: number, min: number, max: number) => {
-  const value = Number(localStorage.getItem(key));
+const readSavedMinutes = async (key: string, fallback: number, min: number, max: number) => {
+  const value = Number(await getStoredValue(key));
   if (!Number.isFinite(value)) return fallback;
   return Math.min(max, Math.max(min, value));
 };
@@ -21,8 +22,8 @@ export function TimerDropdown({ isOpen, onClose }: TimerDropdownProps) {
   const closeButtonRef = useRef<HTMLButtonElement | null>(null);
   const onCloseRef = useRef(onClose);
   const previouslyFocusedElementRef = useRef<HTMLElement | null>(null);
-  const focusMinutes = readSavedMinutes('focusspark-extension-focus-minutes', 25, 5, 120);
-  const breakMinutes = readSavedMinutes('focusspark-extension-break-minutes', 5, 1, 60);
+  const [focusMinutes, setFocusMinutes] = useState(25);
+  const [breakMinutes, setBreakMinutes] = useState(5);
 
   const handleStart = () => {
     startSession('custom', { focusMinutes, breakMinutes });
@@ -32,6 +33,24 @@ export function TimerDropdown({ isOpen, onClose }: TimerDropdownProps) {
   useEffect(() => {
     onCloseRef.current = onClose;
   }, [onClose]);
+
+  useEffect(() => {
+    if (!isOpen) return;
+    let isMounted = true;
+
+    void Promise.all([
+      readSavedMinutes('focusspark-extension-focus-minutes', 25, 5, 120),
+      readSavedMinutes('focusspark-extension-break-minutes', 5, 1, 60),
+    ]).then(([savedFocusMinutes, savedBreakMinutes]) => {
+      if (!isMounted) return;
+      setFocusMinutes(savedFocusMinutes);
+      setBreakMinutes(savedBreakMinutes);
+    });
+
+    return () => {
+      isMounted = false;
+    };
+  }, [isOpen]);
 
   useEffect(() => {
     if (!isOpen) return;

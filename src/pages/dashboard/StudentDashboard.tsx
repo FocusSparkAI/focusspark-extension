@@ -29,6 +29,7 @@ import { useFocus } from '../../hooks/useFocus';
 import { usePomodoro } from '../../hooks/usePomodoro';
 import { BACKEND_ROUTES } from '../../config/backend';
 import backendClient, { getAuthHeaders } from '../../utils/backendClient';
+import { getStoredValue, setStoredValue } from '../../utils/chromeStorage';
 
 interface StudentDashboardProps {
   onNavigate: (page: string) => void;
@@ -78,18 +79,37 @@ export function StudentDashboard({ onNavigate, onLogout }: StudentDashboardProps
     isLoading: true,
   });
   const [profileName, setProfileName] = useState('');
-  const [savedFocusMinutes, setSavedFocusMinutes] = useState(() => {
-    const saved = Number(localStorage.getItem('focusspark-extension-focus-minutes'));
-    return Number.isFinite(saved) && saved > 0 ? saved : 25;
-  });
-  const [savedBreakMinutes, setSavedBreakMinutes] = useState(() => {
-    const saved = Number(localStorage.getItem('focusspark-extension-break-minutes'));
-    return Number.isFinite(saved) && saved > 0 ? saved : 5;
-  });
+  const [savedFocusMinutes, setSavedFocusMinutes] = useState(25);
+  const [savedBreakMinutes, setSavedBreakMinutes] = useState(5);
   const [draftFocusMinutes, setDraftFocusMinutes] = useState(savedFocusMinutes);
   const [draftBreakMinutes, setDraftBreakMinutes] = useState(savedBreakMinutes);
   const { isDetectionEnabled } = useFocus();
   const { startSession } = usePomodoro();
+
+  useEffect(() => {
+    let isMounted = true;
+
+    void Promise.all([
+      getStoredValue('focusspark-extension-focus-minutes'),
+      getStoredValue('focusspark-extension-break-minutes'),
+    ]).then(([storedFocus, storedBreak]) => {
+      if (!isMounted) return;
+
+      const nextFocus = Number(storedFocus);
+      const nextBreak = Number(storedBreak);
+      const hydratedFocus = Number.isFinite(nextFocus) && nextFocus > 0 ? nextFocus : 25;
+      const hydratedBreak = Number.isFinite(nextBreak) && nextBreak > 0 ? nextBreak : 5;
+
+      setSavedFocusMinutes(hydratedFocus);
+      setSavedBreakMinutes(hydratedBreak);
+      setDraftFocusMinutes(hydratedFocus);
+      setDraftBreakMinutes(hydratedBreak);
+    });
+
+    return () => {
+      isMounted = false;
+    };
+  }, []);
   const activeGoal = dashboardStats.activeGoal;
   const todayGoalsCount = dashboardStats.todayGoals.length;
   const completedGoals = Number(dashboardStats.todayGoalStats?.completed ?? 0);
@@ -205,8 +225,8 @@ export function StudentDashboard({ onNavigate, onLogout }: StudentDashboardProps
     setSavedBreakMinutes(nextBreak);
     setDraftFocusMinutes(nextFocus);
     setDraftBreakMinutes(nextBreak);
-    localStorage.setItem('focusspark-extension-focus-minutes', String(nextFocus));
-    localStorage.setItem('focusspark-extension-break-minutes', String(nextBreak));
+    void setStoredValue('focusspark-extension-focus-minutes', String(nextFocus));
+    void setStoredValue('focusspark-extension-break-minutes', String(nextBreak));
     toast.success(`Saved ${nextFocus} min focus / ${nextBreak} min break`);
   };
 
@@ -216,8 +236,8 @@ export function StudentDashboard({ onNavigate, onLogout }: StudentDashboardProps
 
     setSavedFocusMinutes(nextFocus);
     setSavedBreakMinutes(nextBreak);
-    localStorage.setItem('focusspark-extension-focus-minutes', String(nextFocus));
-    localStorage.setItem('focusspark-extension-break-minutes', String(nextBreak));
+    void setStoredValue('focusspark-extension-focus-minutes', String(nextFocus));
+    void setStoredValue('focusspark-extension-break-minutes', String(nextBreak));
     startSession('custom', { focusMinutes: nextFocus, breakMinutes: nextBreak });
     onNavigate('chatbot');
   };

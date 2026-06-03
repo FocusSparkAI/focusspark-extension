@@ -14,6 +14,7 @@ Website-only pages such as the public landing pages, Science page, profile manag
 - AI chat workspace and chat history
 - Flashcard and quiz flows
 - Focus tools, webcam checks, Pomodoro context, and focus context
+- Strict Mode tab/app focus warnings and route locking inside the tutor workspace
 - Extension notification dropdown that respects the backend `notifications_enabled` setting
 - Cloudinary-backed profile avatar display through the backend `avatar_url`
 
@@ -101,6 +102,8 @@ Routes rendered inside the extension app:
 - `/quiz`
 - `/webcam-test`
 
+When Strict Mode or an active Pomodoro focus phase is locking the workspace, direct URL attempts to other extension routes are redirected back to `/chatbot`.
+
 Routes handed off to the web frontend:
 
 - Signup
@@ -128,6 +131,10 @@ After changing `public/manifest.json` or `public/background.js`, rebuild and rel
 - Profile avatars are displayed from the backend `avatar_url`; new uploads are handled by the web profile page and stored in Cloudinary by the backend.
 - The background service worker manages focus-session tab behavior.
 - During an active or paused Pomodoro focus phase, navigation is locked to the AI chatbot workspace.
+- During Strict Mode, navigation is also locked to the AI chatbot workspace, including direct URL route attempts.
+- Strict Mode blocks Chrome tab distractions and warns when the user switches tabs or apps. It cannot block other applications such as Edge, but it can warn and count the focus loss.
+- Pomodoro tab distractions are counted separately during active or paused focus phases and shown in the tutor workspace.
+- Finishing a Pomodoro session early stops the Pomodoro focus lock and returns the timer state to idle.
 - Pomodoro phase changes are sent to the background service worker so break and focus behavior can stay synchronized with extension tab behavior.
 - The extension notification dropdown reads `/study/settings`.
 - When `notifications_enabled` is false, the dropdown shows "Notifications off" and still links to the full web notifications page.
@@ -152,6 +159,9 @@ npm run preview  # Preview production build
 - Dashboard loads profile data and Cloudinary avatar
 - Pomodoro, focus tools, AI chat, quiz, and flashcard pages open correctly
 - Active Pomodoro focus mode keeps the user in the chatbot workspace
+- Strict Mode keeps the user in the chatbot workspace, including when they try direct URL navigation
+- Strict Mode warns when the user switches tabs or apps
+- Pomodoro tab distractions appear in the tutor workspace counter
 - Notification dropdown reflects backend settings
 
 ## Notes

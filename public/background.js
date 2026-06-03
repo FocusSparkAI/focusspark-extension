@@ -16,10 +16,77 @@ const recentlyHandledTabs = new Map();
 
 const extensionIndexUrl = chrome.runtime.getURL('index.html');
 const pomodoroAlarmName = 'focusspark-pomodoro-break-ended';
+const backgroundStateStorageKey = 'focusspark-background-state';
+let backgroundStateHydrated = false;
+let backgroundStateHydrationPromise = null;
+
+function getBackgroundStateSnapshot() {
+  return {
+    strictModeState: { ...strictModeState },
+    pomodoroState: { ...pomodoroState },
+  };
+}
+
+function applyStoredBackgroundState(storedState) {
+  if (!storedState || typeof storedState !== 'object') return;
+
+  if (storedState.strictModeState && typeof storedState.strictModeState === 'object') {
+    strictModeState.enabled = Boolean(storedState.strictModeState.enabled);
+    strictModeState.focusTabId = Number.isInteger(storedState.strictModeState.focusTabId)
+      ? storedState.strictModeState.focusTabId
+      : null;
+    strictModeState.distractionCount = Number.isFinite(Number(storedState.strictModeState.distractionCount))
+      ? Math.max(0, Number(storedState.strictModeState.distractionCount))
+      : 0;
+  }
+
+  if (storedState.pomodoroState && typeof storedState.pomodoroState === 'object') {
+    pomodoroState.phase = typeof storedState.pomodoroState.phase === 'string'
+      ? storedState.pomodoroState.phase
+      : 'idle';
+    pomodoroState.focusTabId = Number.isInteger(storedState.pomodoroState.focusTabId)
+      ? storedState.pomodoroState.focusTabId
+      : null;
+    pomodoroState.distractionCount = Number.isFinite(Number(storedState.pomodoroState.distractionCount))
+      ? Math.max(0, Number(storedState.pomodoroState.distractionCount))
+      : 0;
+    pomodoroState.breakEndsAt = Number.isFinite(Number(storedState.pomodoroState.breakEndsAt))
+      ? Number(storedState.pomodoroState.breakEndsAt)
+      : null;
+    pomodoroState.breakLateStartedAt = Number.isFinite(Number(storedState.pomodoroState.breakLateStartedAt))
+      ? Number(storedState.pomodoroState.breakLateStartedAt)
+      : null;
+  }
+}
+
+function persistBackgroundState() {
+  chrome.storage.local.set({
+    [backgroundStateStorageKey]: getBackgroundStateSnapshot(),
+  });
+}
+
+function hydrateBackgroundState() {
+  if (backgroundStateHydrated) return Promise.resolve();
+  if (backgroundStateHydrationPromise) return backgroundStateHydrationPromise;
+
+  backgroundStateHydrationPromise = new Promise((resolve) => {
+    chrome.storage.local.get({ [backgroundStateStorageKey]: null }, (items) => {
+      if (!chrome.runtime.lastError) {
+        applyStoredBackgroundState(items[backgroundStateStorageKey]);
+      }
+      backgroundStateHydrated = true;
+      resolve();
+    });
+  });
+
+  return backgroundStateHydrationPromise;
+}
+
+void hydrateBackgroundState();
 
 function sendRuntimeEvent(message) {
   chrome.runtime.sendMessage(message, () => {
-    // Ignore receiver errors when no extension page is listening.
+    void chrome.runtime.lastError;
   });
 }
 
@@ -57,6 +124,58 @@ function isPomodoroFocusLocked() {
   return pomodoroState.phase === 'focus' || pomodoroState.phase === 'paused';
 }
 
+function isTabEditTemporarilyBlocked(errorMessage) {
+  return typeof errorMessage === 'string' && errorMessage.includes('Tabs cannot be edited right now');
+}
+
+function updateTabSafely(tabId, updateProperties, retries = 3) {
+  if (typeof tabId !== 'number') return;
+
+  chrome.tabs.update(tabId, updateProperties, () => {
+    const errorMessage = chrome.runtime.lastError?.message;
+    if (isTabEditTemporarilyBlocked(errorMessage) && retries > 0) {
+      setTimeout(() => updateTabSafely(tabId, updateProperties, retries - 1), 150);
+    }
+  });
+}
+
+function removeTabSafely(tabId, retries = 3, onRemoved) {
+  if (typeof tabId !== 'number') return;
+
+  chrome.tabs.remove(tabId, () => {
+    const errorMessage = chrome.runtime.lastError?.message;
+    if (isTabEditTemporarilyBlocked(errorMessage) && retries > 0) {
+      setTimeout(() => removeTabSafely(tabId, retries - 1, onRemoved), 150);
+      return;
+    }
+
+    if (!errorMessage) {
+      onRemoved?.();
+    }
+  });
+}
+
+function enforceFocusLock({
+  enabled,
+  focusTabId,
+  tab,
+  shouldHandleTab,
+  recordDistraction,
+  refocus,
+  onClosed,
+}) {
+  if (!enabled) return false;
+  if (typeof tab?.id === 'number' && tab.id === focusTabId) return false;
+  if (shouldHandleTab && !shouldHandleTab(tab)) return false;
+  if (wasTabHandledRecently(tab?.id)) return false;
+
+  markTabHandled(tab?.id);
+  recordDistraction();
+  removeTabSafely(tab?.id, 3, onClosed);
+  refocus();
+  return true;
+}
+
 function getPomodoroTutorUrl() {
   return `${extensionIndexUrl}#/chatbot`;
 }
@@ -68,21 +187,16 @@ function focusPomodoroTab() {
         chrome.tabs.create({ url: getPomodoroTutorUrl() }, (createdTab) => {
           if (typeof createdTab?.id === 'number') {
             pomodoroState.focusTabId = createdTab.id;
+            persistBackgroundState();
           }
         });
         return;
       }
 
-      chrome.tabs.update(
-        pomodoroState.focusTabId,
-        {
-          active: true,
-          ...(isFocusSparkExtensionTab(tab) ? {} : { url: getPomodoroTutorUrl() }),
-        },
-        () => {
-          // Ignore failures if the focus tab is no longer available.
-        },
-      );
+      updateTabSafely(pomodoroState.focusTabId, {
+        active: true,
+        ...(isFocusSparkExtensionTab(tab) ? {} : { url: getPomodoroTutorUrl() }),
+      });
     });
     return;
   }
@@ -90,6 +204,7 @@ function focusPomodoroTab() {
   chrome.tabs.create({ url: getPomodoroTutorUrl() }, (tab) => {
     if (typeof tab?.id === 'number') {
       pomodoroState.focusTabId = tab.id;
+      persistBackgroundState();
     }
   });
 }
@@ -105,15 +220,14 @@ function restorePomodoroFocusTabUrl(tab) {
     tabUrl: tab?.url || '',
   });
 
-  chrome.tabs.update(pomodoroState.focusTabId, { url: getPomodoroTutorUrl(), active: true }, () => {
-    // Ignore failures if the focus tab is no longer available.
-  });
+  updateTabSafely(pomodoroState.focusTabId, { url: getPomodoroTutorUrl(), active: true });
 
   return true;
 }
 
 function recordPomodoroDistraction(details = {}) {
   pomodoroState.distractionCount += 1;
+  persistBackgroundState();
   sendRuntimeEvent({
     type: 'POMODORO_DISTRACTION_DETECTED',
     count: pomodoroState.distractionCount,
@@ -122,12 +236,13 @@ function recordPomodoroDistraction(details = {}) {
 }
 
 function enforcePomodoroFocus(tab, details = {}) {
-  if (!isPomodoroFocusLocked()) return;
-  if (typeof tab?.id === 'number' && tab.id === pomodoroState.focusTabId) return;
-  if (wasTabHandledRecently(tab?.id)) return;
-  markTabHandled(tab?.id);
-  recordPomodoroDistraction(details);
-  focusPomodoroTab();
+  enforceFocusLock({
+    enabled: isPomodoroFocusLocked(),
+    focusTabId: pomodoroState.focusTabId,
+    tab,
+    recordDistraction: () => recordPomodoroDistraction(details),
+    refocus: focusPomodoroTab,
+  });
 }
 
 function addPomodoroLateTime(lateMs) {
@@ -179,6 +294,7 @@ function handlePomodoroBreakEnded() {
     } else {
       pomodoroState.breakLateStartedAt = null;
     }
+    persistBackgroundState();
 
     sendRuntimeEvent({
       type: 'POMODORO_BREAK_ENDED_IN_BACKGROUND',
@@ -197,6 +313,7 @@ function handlePomodoroBreakCompleted(message, sender) {
     ? sender.tab.id
     : pomodoroState.focusTabId;
   pomodoroState.breakEndsAt = breakEndsAt;
+  persistBackgroundState();
 
   handlePomodoroBreakEnded();
 }
@@ -231,35 +348,38 @@ function syncPomodoroState(message, sender) {
   if (phase === 'idle') {
     pomodoroState.distractionCount = 0;
   }
+  persistBackgroundState();
 }
 
-function enforceStrictModeOnTab(tab) {
-  if (!strictModeState.enabled || !isFocusableDistractionTab(tab)) return;
-  if (wasTabHandledRecently(tab.id)) return;
-  markTabHandled(tab.id);
-
-  strictModeState.distractionCount += 1;
-  sendRuntimeEvent({
-    type: 'DISTRACTION_DETECTED',
-    count: strictModeState.distractionCount,
-    tabTitle: tab.title || 'Unknown tab',
-    tabUrl: tab.url || '',
-  });
-
-  if (typeof tab.id === 'number') {
-    chrome.tabs.remove(tab.id, () => {
+function enforceStrictModeOnTab(tab, details = {}, shouldHandleTab = isFocusableDistractionTab) {
+  enforceFocusLock({
+    enabled: strictModeState.enabled,
+    focusTabId: strictModeState.focusTabId,
+    tab,
+    shouldHandleTab,
+    recordDistraction: () => {
+      strictModeState.distractionCount += 1;
+      persistBackgroundState();
+      sendRuntimeEvent({
+        type: 'DISTRACTION_DETECTED',
+        count: strictModeState.distractionCount,
+        tabTitle: tab?.title || 'Unknown tab',
+        tabUrl: tab?.url || '',
+        ...details,
+      });
+    },
+    refocus: () => {
+      if (typeof strictModeState.focusTabId === 'number') {
+        updateTabSafely(strictModeState.focusTabId, { active: true });
+      }
+    },
+    onClosed: () => {
       sendRuntimeEvent({
         type: 'DISTRACTION_TAB_CLOSED',
         count: strictModeState.distractionCount,
       });
-    });
-  }
-
-  if (typeof strictModeState.focusTabId === 'number') {
-    chrome.tabs.update(strictModeState.focusTabId, { active: true }, () => {
-      // Ignore failures if the focus tab is no longer available.
-    });
-  }
+    },
+  });
 }
 
 chrome.action.onClicked.addListener(() => {
@@ -269,160 +389,152 @@ chrome.action.onClicked.addListener(() => {
 });
 
 chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
-  if (!message || typeof message !== 'object') return;
+  if (!message || typeof message !== 'object') return false;
 
-  if (message.type === 'SET_STRICT_MODE' || message.type === 'STRICT_MODE_CHANGED') {
-    strictModeState.enabled = Boolean(message.enabled);
-    strictModeState.focusTabId = Number.isInteger(message.focusTabId)
-      ? message.focusTabId
-      : Number.isInteger(_sender?.tab?.id)
-      ? _sender.tab.id
-      : strictModeState.focusTabId;
+  void hydrateBackgroundState().then(() => {
+    if (message.type === 'SET_STRICT_MODE' || message.type === 'STRICT_MODE_CHANGED') {
+      strictModeState.enabled = Boolean(message.enabled);
+      strictModeState.focusTabId = Number.isInteger(message.focusTabId)
+        ? message.focusTabId
+        : Number.isInteger(_sender?.tab?.id)
+        ? _sender.tab.id
+        : strictModeState.focusTabId;
 
-    if (!strictModeState.enabled) {
-      strictModeState.distractionCount = 0;
+      if (!strictModeState.enabled) {
+        strictModeState.distractionCount = 0;
+      }
+
+      persistBackgroundState();
+      sendResponse({
+        ok: true,
+        strictMode: strictModeState.enabled,
+        focusTabId: strictModeState.focusTabId,
+        distractionCount: strictModeState.distractionCount,
+      });
+      return;
     }
 
-    sendResponse({
-      ok: true,
-      strictMode: strictModeState.enabled,
-      focusTabId: strictModeState.focusTabId,
-      distractionCount: strictModeState.distractionCount,
-    });
-  }
+    if (message.type === 'GET_STRICT_MODE') {
+      sendResponse({
+        strictMode: strictModeState.enabled,
+        focusTabId: strictModeState.focusTabId,
+        distractionCount: strictModeState.distractionCount,
+      });
+      return;
+    }
 
-  if (message.type === 'GET_STRICT_MODE') {
-    sendResponse({
-      strictMode: strictModeState.enabled,
-      focusTabId: strictModeState.focusTabId,
-      distractionCount: strictModeState.distractionCount,
-    });
-  }
+    if (message.type === 'POMODORO_STATE_CHANGED') {
+      syncPomodoroState(message, _sender);
+      sendResponse({
+        ok: true,
+        pomodoro: { ...pomodoroState },
+      });
+      return;
+    }
 
-  if (message.type === 'POMODORO_STATE_CHANGED') {
-    syncPomodoroState(message, _sender);
-    sendResponse({
-      ok: true,
-      pomodoro: { ...pomodoroState },
-    });
-  }
+    if (message.type === 'POMODORO_BREAK_COMPLETED') {
+      handlePomodoroBreakCompleted(message, _sender);
+      sendResponse({ ok: true });
+      return;
+    }
 
-  if (message.type === 'POMODORO_BREAK_COMPLETED') {
-    handlePomodoroBreakCompleted(message, _sender);
-    sendResponse({ ok: true });
-  }
+    if (message.type === 'GET_POMODORO_METRICS') {
+      chrome.storage.local.get(
+        {
+          pomodoroLateMsTotal: 0,
+          pomodoroLateEvents: [],
+        },
+        (items) => {
+          void chrome.runtime.lastError;
+          sendResponse({ ok: true, ...items });
+        },
+      );
+      return;
+    }
 
-  if (message.type === 'GET_POMODORO_METRICS') {
-    chrome.storage.local.get(
-      {
-        pomodoroLateMsTotal: 0,
-        pomodoroLateEvents: [],
-      },
-      (items) => sendResponse({ ok: true, ...items }),
-    );
-    return true;
-  }
+    sendResponse({ ok: false, error: 'Unknown message type' });
+  });
 
   return true;
 });
 
 chrome.tabs.onActivated.addListener(({ tabId }) => {
-  if (
-    tabId === pomodoroState.focusTabId &&
-    typeof pomodoroState.breakLateStartedAt === 'number'
-  ) {
-    addPomodoroLateTime(Date.now() - pomodoroState.breakLateStartedAt);
-    pomodoroState.breakLateStartedAt = null;
-  }
+  void hydrateBackgroundState().then(() => {
+    if (
+      tabId === pomodoroState.focusTabId &&
+      typeof pomodoroState.breakLateStartedAt === 'number'
+    ) {
+      addPomodoroLateTime(Date.now() - pomodoroState.breakLateStartedAt);
+      pomodoroState.breakLateStartedAt = null;
+      persistBackgroundState();
+    }
 
-  if (isPomodoroFocusLocked()) {
-    enforcePomodoroFocus({ id: tabId }, { reason: 'tab-switch' });
-    return;
-  }
+    if (isPomodoroFocusLocked()) {
+      enforcePomodoroFocus({ id: tabId }, { reason: 'tab-switch' });
+      return;
+    }
 
-  if (!strictModeState.enabled) return;
-  if (tabId === strictModeState.focusTabId) return;
-  if (wasTabHandledRecently(tabId)) return;
-  markTabHandled(tabId);
-
-  strictModeState.distractionCount += 1;
-  sendRuntimeEvent({
-    type: 'DISTRACTION_DETECTED',
-    count: strictModeState.distractionCount,
-  });
-
-  if (typeof strictModeState.focusTabId === 'number') {
-    chrome.tabs.update(strictModeState.focusTabId, { active: true }, () => {
-      // Ignore update errors if focus tab is not available.
+    if (!strictModeState.enabled) return;
+    chrome.tabs.get(tabId, (tab) => {
+      if (chrome.runtime.lastError) return;
+      enforceStrictModeOnTab(tab, { reason: 'tab-switch' });
     });
-  }
+  });
 });
 
 chrome.tabs.onCreated.addListener((tab) => {
-  if (isPomodoroFocusLocked()) {
-    enforcePomodoroFocus(tab, { reason: 'new-tab' });
-    return;
-  }
-
-  if (!strictModeState.enabled) return;
-  if (tab.id === strictModeState.focusTabId) return;
-  if (wasTabHandledRecently(tab.id)) return;
-  markTabHandled(tab.id);
-
-  strictModeState.distractionCount += 1;
-  sendRuntimeEvent({
-    type: 'DISTRACTION_DETECTED',
-    count: strictModeState.distractionCount,
-  });
-
-  // Close newly created distraction tabs quickly.
-  setTimeout(() => {
-    if (typeof tab.id !== 'number') return;
-
-    chrome.tabs.remove(tab.id, () => {
-      sendRuntimeEvent({
-        type: 'DISTRACTION_TAB_CLOSED',
-        count: strictModeState.distractionCount,
-      });
-    });
-
-    if (typeof strictModeState.focusTabId === 'number') {
-      chrome.tabs.update(strictModeState.focusTabId, { active: true }, () => {
-        // Ignore update errors if focus tab is not available.
-      });
+  void hydrateBackgroundState().then(() => {
+    if (isPomodoroFocusLocked()) {
+      enforcePomodoroFocus(tab, { reason: 'new-tab' });
+      return;
     }
-  }, 100);
+
+    if (!strictModeState.enabled) return;
+
+    // Close newly created distraction tabs quickly.
+    setTimeout(() => {
+      enforceStrictModeOnTab(tab, { reason: 'new-tab' }, null);
+    }, 100);
+  });
 });
 
 chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
-  if (!isPomodoroFocusLocked()) return;
-  if (changeInfo.status !== 'loading' && !changeInfo.url) return;
-  if (restorePomodoroFocusTabUrl(tab || { id: tabId, url: changeInfo.url })) return;
-  if (tabId === pomodoroState.focusTabId) return;
-  enforcePomodoroFocus(tab || { id: tabId }, { reason: 'url-change' });
+  void hydrateBackgroundState().then(() => {
+    if (!isPomodoroFocusLocked()) return;
+    if (changeInfo.status !== 'loading' && !changeInfo.url) return;
+    if (restorePomodoroFocusTabUrl(tab || { id: tabId, url: changeInfo.url })) return;
+    if (tabId === pomodoroState.focusTabId) return;
+    enforcePomodoroFocus(tab || { id: tabId }, { reason: 'url-change' });
+  });
 });
 
 chrome.alarms.onAlarm.addListener((alarm) => {
-  if (alarm.name === pomodoroAlarmName) {
-    handlePomodoroBreakEnded();
-  }
+  void hydrateBackgroundState().then(() => {
+    if (alarm.name === pomodoroAlarmName) {
+      handlePomodoroBreakEnded();
+    }
+  });
 });
 
 chrome.tabs.onRemoved.addListener((tabId) => {
-  recentlyHandledTabs.delete(tabId);
+  void hydrateBackgroundState().then(() => {
+    recentlyHandledTabs.delete(tabId);
 
-  if (tabId === pomodoroState.focusTabId) {
-    pomodoroState.focusTabId = null;
-    if (isPomodoroFocusLocked()) {
-      focusPomodoroTab();
+    if (tabId === pomodoroState.focusTabId) {
+      pomodoroState.focusTabId = null;
+      persistBackgroundState();
+      if (isPomodoroFocusLocked()) {
+        focusPomodoroTab();
+      }
     }
-  }
 
-  if (tabId !== strictModeState.focusTabId) return;
+    if (tabId !== strictModeState.focusTabId) return;
 
-  strictModeState.enabled = false;
-  strictModeState.focusTabId = null;
-  strictModeState.distractionCount = 0;
+    strictModeState.enabled = false;
+    strictModeState.focusTabId = null;
+    strictModeState.distractionCount = 0;
+    persistBackgroundState();
 
-  sendRuntimeEvent({ type: 'STRICT_MODE_FORCED_OFF' });
+    sendRuntimeEvent({ type: 'STRICT_MODE_FORCED_OFF' });
+  });
 });

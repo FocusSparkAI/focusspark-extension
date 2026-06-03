@@ -51,6 +51,14 @@ import {
 } from '../../types/QuizTypes';
 import { CHAT_QUIZ_PROGRESS_KEY } from '../../types/ChatTypes';
 import { formatUserDate } from '../../utils/timezone';
+import { getStoredValue, setStoredValue } from '../../utils/chromeStorage';
+
+const DEFAULT_PASSING_SCORE = 70;
+
+const normalizePassingScore = (value: unknown): number => {
+  const score = Number(value);
+  return Number.isFinite(score) && score > 0 ? score : DEFAULT_PASSING_SCORE;
+};
 
 interface QuizScreenProps {
   onNavigate: (page: string) => void;
@@ -79,17 +87,22 @@ const getResponseStatus = (error: unknown) =>
 const getOptionalNumber = (value: unknown) =>
   typeof value === 'number' ? value : undefined;
 
-const readChatQuizProgress = (): Record<string, Record<string, unknown>> => {
+let chatQuizProgressCache: Record<string, Record<string, unknown>> = {};
+
+void getStoredValue(CHAT_QUIZ_PROGRESS_KEY).then((raw) => {
   try {
-    const raw = localStorage.getItem(CHAT_QUIZ_PROGRESS_KEY);
-    if (!raw) return {};
+    if (!raw) return;
     const parsed = JSON.parse(raw);
-    return parsed && typeof parsed === 'object' && !Array.isArray(parsed)
+    chatQuizProgressCache = parsed && typeof parsed === 'object' && !Array.isArray(parsed)
       ? parsed as Record<string, Record<string, unknown>>
       : {};
   } catch {
-    return {};
+    chatQuizProgressCache = {};
   }
+});
+
+const readChatQuizProgress = (): Record<string, Record<string, unknown>> => {
+  return chatQuizProgressCache;
 };
 
 const getQuizProgressRecord = (quiz: Quiz) => {
@@ -170,7 +183,7 @@ export function QuizScreen({ onNavigate }: QuizScreenProps) {
   const enableQuizStrictMode = () => {
     if (quizStrictModeRef.current) return;
     quizStrictModeRef.current = true;
-    localStorage.setItem('focusspark-strict-mode', 'true');
+    void setStoredValue('focusspark-strict-mode', 'true');
     syncStrictModeToBackground(true);
     toast.warning('Quiz attempt started. Strict Mode is now ON.', {
       duration: 2500,
@@ -181,7 +194,7 @@ export function QuizScreen({ onNavigate }: QuizScreenProps) {
   const disableQuizStrictMode = () => {
     if (!quizStrictModeRef.current) return;
     quizStrictModeRef.current = false;
-    localStorage.setItem('focusspark-strict-mode', 'false');
+    void setStoredValue('focusspark-strict-mode', 'false');
     syncStrictModeToBackground(false);
     toast.success('Quiz attempt ended. Strict Mode is now OFF.', {
       duration: 2000,
@@ -249,7 +262,7 @@ export function QuizScreen({ onNavigate }: QuizScreenProps) {
             normalizeQuizSourceType(q.generated_from),
           difficulty: normalizeDifficulty(q.difficulty),
           timeLimit: getOptionalNumber(q.time_limit_seconds),
-          passingScore: Number(q.passing_score ?? 0),
+          passingScore: normalizePassingScore(q.passing_score),
           totalAttempts: Number(q.total_attempts ?? 0),
           questionCount: Number(questionCount),
           bestScore: Number(q.best_score ?? 0),
@@ -344,7 +357,7 @@ export function QuizScreen({ onNavigate }: QuizScreenProps) {
               difficulty: normalizeDifficulty(quizMeta.difficulty),
               questions,
               timeLimit: quizMeta.time_limit_seconds ?? undefined,
-              passingScore: quizMeta.passing_score ?? 0,
+              passingScore: normalizePassingScore(quizMeta.passing_score),
               totalAttempts: quizMeta.total_attempts ?? 0,
               questionCount: questions.length,
               bestScore: quizMeta.best_score ?? 0,
@@ -402,7 +415,7 @@ export function QuizScreen({ onNavigate }: QuizScreenProps) {
         sourceType: 'Chat',
         difficulty: 'Beginner',
         questions,
-        passingScore: 0,
+        passingScore: DEFAULT_PASSING_SCORE,
         totalAttempts: 0,
         questionCount: questions.length,
         bestScore: 0,
@@ -702,6 +715,10 @@ export function QuizScreen({ onNavigate }: QuizScreenProps) {
   const percentage = selectedQuiz
     ? Math.round((correctCount / selectedQuiz.questions.length) * 100)
     : 0;
+  const passingScore = selectedQuiz
+    ? normalizePassingScore(selectedQuiz.passingScore)
+    : DEFAULT_PASSING_SCORE;
+  const hasPassed = selectedQuiz ? percentage >= passingScore : false;
 
   const handleRetry = () => {
     if (!selectedQuiz) return;
@@ -756,7 +773,7 @@ export function QuizScreen({ onNavigate }: QuizScreenProps) {
               quiz.sourceType,
             difficulty: normalizeDifficulty(full.difficulty || quiz.difficulty),
             timeLimit: full.time_limit_seconds ?? quiz.timeLimit,
-            passingScore: full.passing_score ?? quiz.passingScore ?? 0,
+            passingScore: normalizePassingScore(full.passing_score ?? quiz.passingScore),
             totalAttempts: full.total_attempts ?? quiz.totalAttempts ?? 0,
             questionCount: full.total_questions ?? full.question_count ?? quiz.questionCount ?? mappedQuestions.length,
             bestScore: full.best_score ?? quiz.bestScore ?? 0,
@@ -885,7 +902,7 @@ export function QuizScreen({ onNavigate }: QuizScreenProps) {
             'Topic',
           difficulty: normalizeDifficulty(created.difficulty || newDifficulty),
           timeLimit: created.time_limit_seconds ?? undefined,
-          passingScore: created.passing_score ?? 0,
+          passingScore: normalizePassingScore(created.passing_score),
           totalAttempts: created.total_attempts ?? 0,
           questionCount:
             created.total_questions ??
@@ -935,7 +952,7 @@ export function QuizScreen({ onNavigate }: QuizScreenProps) {
                 normalizeQuizSourceType(q.generated_from),
               difficulty: normalizeDifficulty(q.difficulty),
               timeLimit: getOptionalNumber(q.time_limit_seconds),
-              passingScore: Number(q.passing_score ?? 0),
+              passingScore: normalizePassingScore(q.passing_score),
               totalAttempts: Number(q.total_attempts ?? 0),
               questionCount: Number(questionCount),
               bestScore: Number(q.best_score ?? 0),
@@ -1350,7 +1367,7 @@ export function QuizScreen({ onNavigate }: QuizScreenProps) {
                 <CardContent className="space-y-6">
                   {/* Choices */}
                   <RadioGroup
-                    value={currentAnswer?.toString()}
+                    value={typeof currentAnswer === 'number' ? currentAnswer.toString() : ''}
                     onValueChange={(value) => handleAnswerSelect(parseInt(value))}
                     className="space-y-3"
                   >
@@ -1469,7 +1486,7 @@ export function QuizScreen({ onNavigate }: QuizScreenProps) {
           <DialogHeader>
             <DialogTitle className="quiz-summary-title">Quiz Complete! 🎉</DialogTitle>
             <DialogDescription className="quiz-summary-description">
-              {selectedQuiz && percentage >= selectedQuiz.passingScore
+              {hasPassed
                 ? percentage >= 80
                   ? 'Crushed it! 💥 Outstanding performance!'
                   : 'Great effort! You passed! 💪'
@@ -1547,11 +1564,11 @@ export function QuizScreen({ onNavigate }: QuizScreenProps) {
 
             {/* Pass/Fail Indicator */}
             {selectedQuiz && (
-              <div className={`quiz-pass-indicator ${percentage >= selectedQuiz.passingScore ? 'quiz-pass' : 'quiz-fail'}`}>
+              <div className={`quiz-pass-indicator ${hasPassed ? 'quiz-pass' : 'quiz-fail'}`}>
                 <p className="quiz-pass-text">
-                  {percentage >= selectedQuiz.passingScore ? '✅ Passed' : '❌ Not Passed'}
+                  {hasPassed ? '✅ Passed' : '❌ Not Passed'}
                 </p>
-                <p className="quiz-pass-requirement">Required: {selectedQuiz.passingScore}%</p>
+                {!hasPassed && <p className="quiz-pass-requirement">Required: {passingScore}%</p>}
               </div>
             )}
 
