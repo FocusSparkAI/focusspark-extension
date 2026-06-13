@@ -3,19 +3,13 @@ import { motion, AnimatePresence } from 'motion/react';
 import { Clock, X } from 'lucide-react';
 import { Button } from '../../components/ui/button';
 import { usePomodoro } from '../../hooks/usePomodoro';
-import { getStoredValue } from '../../utils/chromeStorage';
+import { loadSavedPomodoroTimings } from '../../utils/pomodoroSettings';
 
 interface TimerDropdownProps {
   isOpen: boolean;
   onClose: () => void;
   anchorElement?: HTMLElement | null;
 }
-
-const readSavedMinutes = async (key: string, fallback: number, min: number, max: number) => {
-  const value = Number(await getStoredValue(key));
-  if (!Number.isFinite(value)) return fallback;
-  return Math.min(max, Math.max(min, value));
-};
 
 export function TimerDropdown({ isOpen, onClose }: TimerDropdownProps) {
   const { startSession } = usePomodoro();
@@ -38,10 +32,7 @@ export function TimerDropdown({ isOpen, onClose }: TimerDropdownProps) {
     if (!isOpen) return;
     let isMounted = true;
 
-    void Promise.all([
-      readSavedMinutes('focusspark-extension-focus-minutes', 25, 5, 120),
-      readSavedMinutes('focusspark-extension-break-minutes', 5, 1, 60),
-    ]).then(([savedFocusMinutes, savedBreakMinutes]) => {
+    void loadSavedPomodoroTimings().then(({ focusMinutes: savedFocusMinutes, breakMinutes: savedBreakMinutes }) => {
       if (!isMounted) return;
       setFocusMinutes(savedFocusMinutes);
       setBreakMinutes(savedBreakMinutes);

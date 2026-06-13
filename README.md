@@ -6,13 +6,26 @@ Website-only pages such as the public landing pages, Science page, profile manag
 
 For the complete multi-project setup, start with the root `README.md`.
 
+## Quick Start
+
+```bash
+cd FocusSpark-Extension
+npm install
+npm run build
+```
+
+Before building, create `.env` with `VITE_BACKEND_BASE_URL` and `VITE_FRONTEND_BASE_URL`. For real Chrome extension testing, build the extension and load `FocusSpark-Extension/build` in Chrome.
+
+Expected result: the build completes successfully, Chrome loads the `build/` folder without manifest errors, and the FocusSpark extension icon opens the app.
+
 ## What Is Included
 
 - Chrome Extension Manifest V3 setup
 - React app mounted inside the extension page
 - Background service worker for extension actions and focus-session behavior
 - Signin screen and web signup handoff
-- Student dashboard and study workspace
+- Server-backed logout that invalidates the current backend token
+- Student dashboard and study workspace with bootstrap loading from one backend route
 - AI chat workspace and chat history
 - Flashcard and quiz flows
 - Focus tools, webcam checks, Pomodoro context, and focus context
@@ -72,7 +85,7 @@ VITE_BACKEND_BASE_URL=http://127.0.0.1:8000
 VITE_FRONTEND_BASE_URL=http://localhost:3000
 ```
 
-`VITE_BACKEND_BASE_URL` points to the FastAPI API. `VITE_FRONTEND_BASE_URL` is used when the extension opens web-only pages in a normal browser tab.
+Both variables are required at startup. `VITE_BACKEND_BASE_URL` points to the FastAPI API, and `VITE_FRONTEND_BASE_URL` is used when the extension opens web-only pages in a normal browser tab.
 
 The default frontend URL assumes the web app is running on Vite port `3000`. If the web app uses another port, update `VITE_FRONTEND_BASE_URL` before building the extension.
 
@@ -88,6 +101,8 @@ npm run dev
 
 This starts the Vite dev server for browser-based development. For local Chrome extension testing, build the extension and load the generated `build/` folder in Chrome.
 
+Use `npm run dev` mainly to preview and iterate on the extension UI in a normal browser tab. Chrome extension APIs and manifest behavior should be tested from a production build loaded through `chrome://extensions`.
+
 ## Build
 
 From this folder:
@@ -98,6 +113,8 @@ npm run build
 ```
 
 The compiled extension is written to `build/`.
+
+Expected result: the command finishes without TypeScript or Vite errors and writes the loadable extension files to `build/`.
 
 ## Local Chrome Testing
 
@@ -116,6 +133,7 @@ Routes rendered inside the extension app:
 
 - `/`
 - `/signin`
+- `/signup`
 - `/dashboard`
 - `/chatbot`
 - `/flashcards`
@@ -138,7 +156,9 @@ Routes handed off to the web frontend:
 
 - Clicking the FocusSpark extension icon opens the extension app in Chrome.
 - Auth tokens are stored in Chrome extension storage under `fs_access_token`.
+- Logout calls `POST /auth/logout`, clears Chrome extension auth storage, preserves the saved theme, resets Strict Mode lock state, and returns to the extension home screen.
 - Dashboard/profile UI reads the authenticated user profile from the backend.
+- The extension dashboard uses `GET /study/dashboard/extension` to load dashboard stats, profile data, settings, notification summary, and flashcard/quiz counts in one request.
 - Profile avatars are displayed from the backend `avatar_url`; new uploads are handled by the web profile page and stored in Cloudinary by the backend.
 - The background service worker manages focus-session tab behavior.
 - During an active or paused Pomodoro focus phase, navigation is locked to the AI chatbot workspace.
@@ -147,7 +167,7 @@ Routes handed off to the web frontend:
 - Pomodoro tab distractions are counted separately during active or paused focus phases and shown in the tutor workspace.
 - Finishing a Pomodoro session early stops the Pomodoro focus lock and returns the timer state to idle.
 - Pomodoro phase changes are sent to the background service worker so break and focus behavior can stay synchronized with extension tab behavior.
-- The extension notification dropdown reads `/study/settings`.
+- The extension notification dropdown reads dashboard bootstrap settings on the dashboard screen and falls back to `/study/settings` when it needs a standalone refresh.
 - When `notifications_enabled` is false, the dropdown shows "Notifications off" and still links to the full web notifications page.
 - The extension can open web routes such as signup, forgot password, achievements, profile, settings, and notifications through `src/config/frontend.ts`.
 
@@ -167,6 +187,7 @@ npm run preview  # Preview production build
 - Extension builds successfully
 - Chrome loads the `build/` folder without manifest errors
 - User can sign in
+- Logout invalidates the current backend token and returns the user to the extension home screen
 - Dashboard loads profile data and Cloudinary avatar
 - Pomodoro, focus tools, AI chat, quiz, and flashcard pages open correctly
 - Active Pomodoro focus mode keeps the user in the chatbot workspace

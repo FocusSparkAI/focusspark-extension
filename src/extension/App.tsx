@@ -17,6 +17,7 @@ import { FocusProvider } from '../context/FocusContext';
 import { PomodoroProvider } from '../context/PomodoroContext';
 import { usePomodoro } from '../hooks/usePomodoro';
 import { clearStoredValuesExcept, getStoredValue, setStoredValue } from '../utils/chromeStorage';
+import { loadSavedPomodoroTimings } from '../utils/pomodoroSettings';
 import { FRONTEND_ROUTES, buildFrontendUrl } from '../config/frontend';
 import { BACKEND_ROUTES } from '../config/backend';
 import backendClient from '../utils/backendClient';
@@ -61,12 +62,6 @@ const SPECIAL_PAGES = new Set([
   'achievements',
   'webcam-test',
 ]);
-
-const readSavedPomodoroMinutes = async (key: string, fallback: number, min: number, max: number) => {
-  const value = Number(await getStoredValue(key));
-  if (!Number.isFinite(value)) return fallback;
-  return Math.min(max, Math.max(min, value));
-};
 
 function normalizePath(pathname: string) {
   if (pathname.length > 1 && pathname.endsWith('/')) {
@@ -145,7 +140,7 @@ function AppContent() {
       }
     });
 
-    void loadThemePreference();
+    const themePreferenceTimeoutId = window.setTimeout(() => void loadThemePreference(), 0);
 
     void getStoredValue('focusspark-strict-mode').then((storedStrictMode) => {
       if (!isMounted) return;
@@ -154,6 +149,7 @@ function AppContent() {
 
     return () => {
       isMounted = false;
+      window.clearTimeout(themePreferenceTimeoutId);
     };
   }, [applyTheme, loadThemePreference]);
 
@@ -287,10 +283,7 @@ function AppContent() {
     }
 
     if (page === 'quick-start') {
-      const [focusMinutes, breakMinutes] = await Promise.all([
-        readSavedPomodoroMinutes('focusspark-extension-focus-minutes', 25, 5, 120),
-        readSavedPomodoroMinutes('focusspark-extension-break-minutes', 5, 1, 60),
-      ]);
+      const { focusMinutes, breakMinutes } = await loadSavedPomodoroTimings();
 
       startSession('custom', { focusMinutes, breakMinutes });
       navigate(getPathFromPage('chatbot'));
@@ -312,9 +305,15 @@ function AppContent() {
   };
 
   const handleLogout = async () => {
-    await clearStoredValuesExcept(['focusspark-theme']);
-    setIsStrictModeLocked(false);
-    navigate(getPathFromPage('home'));
+    try {
+      await backendClient.post(BACKEND_ROUTES.authLogout);
+    } catch {
+      // Local logout should still complete if the server is unavailable.
+    } finally {
+      await clearStoredValuesExcept(['focusspark-theme']);
+      setIsStrictModeLocked(false);
+      navigate(getPathFromPage('home'));
+    }
   };
 
   // Pages that don't show nav and footer

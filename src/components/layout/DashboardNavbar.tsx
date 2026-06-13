@@ -31,6 +31,8 @@ import { setStoredValue } from '../../utils/chromeStorage';
 
 interface DashboardNavbarProps {
   onLogout: () => void | Promise<void>;
+  bootstrapData?: DashboardNavbarBootstrap | null;
+  deferInitialLoad?: boolean;
 }
 
 type DashboardNotification = {
@@ -40,6 +42,30 @@ type DashboardNotification = {
   message: string;
   read: boolean;
   created_at: string;
+};
+
+export type DashboardNavbarBootstrap = {
+  profile?: {
+    full_name?: string;
+    fullName?: string;
+    name?: string;
+    avatar_url?: string;
+    avatarUrl?: string;
+    timezone?: string;
+  };
+  settings?: {
+    notifications_enabled?: boolean;
+    dark_mode?: boolean;
+    appearance?: {
+      theme?: string;
+    };
+    accessibility?: {
+      notification_sound?: boolean;
+    };
+  };
+  notifications?: {
+    items?: DashboardNotification[];
+  };
 };
 
 type ChromeTabsApi = {
@@ -106,7 +132,11 @@ function getUserInitial(name: string) {
   return firstInitial ? firstInitial.toUpperCase() : null;
 }
 
-export function DashboardNavbar({ onLogout }: DashboardNavbarProps) {
+export function DashboardNavbar({
+  onLogout,
+  bootstrapData,
+  deferInitialLoad = false,
+}: DashboardNavbarProps) {
   const [isDark, setIsDark] = useState(() =>
     document.documentElement.classList.contains('dark'),
   );
@@ -119,6 +149,45 @@ export function DashboardNavbar({ onLogout }: DashboardNavbarProps) {
 
   const unreadNotifications = notifications.filter((notification) => !notification.read);
   const unreadCount = extensionNotificationsEnabled ? unreadNotifications.length : 0;
+
+  useEffect(() => {
+    if (!bootstrapData) return;
+
+    const timeoutId = window.setTimeout(() => {
+      const profile = bootstrapData.profile ?? {};
+      setUserTimeZone(profile.timezone);
+      setAvatarUrl(resolveAssetUrl(profile.avatar_url ?? profile.avatarUrl ?? ''));
+      setDisplayName(profile.full_name ?? profile.fullName ?? profile.name ?? '');
+
+      const settings = bootstrapData.settings ?? {};
+      const notificationsEnabled = settings.notifications_enabled !== false;
+      setExtensionNotificationsEnabled(notificationsEnabled);
+      if (!notificationsEnabled) {
+        setNotifications([]);
+        setNotificationsError(false);
+        setNotificationsLoading(false);
+      }
+
+      const savedTheme =
+        settings.appearance?.theme ??
+        (typeof settings.dark_mode === 'boolean' ? (settings.dark_mode ? 'dark' : 'light') : null);
+      if (savedTheme === 'light' || savedTheme === 'dark') {
+        const nextDark = savedTheme === 'dark';
+        setIsDark(nextDark);
+        void setStoredValue('focusspark-theme', savedTheme);
+        document.documentElement.classList.toggle('dark', nextDark);
+      }
+
+      const bootstrapNotifications = bootstrapData.notifications?.items;
+      if (Array.isArray(bootstrapNotifications)) {
+        setNotifications(bootstrapNotifications);
+        setNotificationsError(false);
+        setNotificationsLoading(false);
+      }
+    }, 0);
+
+    return () => window.clearTimeout(timeoutId);
+  }, [bootstrapData]);
 
   const loadProfile = useCallback(async () => {
     try {
@@ -183,14 +252,17 @@ export function DashboardNavbar({ onLogout }: DashboardNavbarProps) {
 
   useEffect(() => {
     unlockNotificationSound();
+    if (deferInitialLoad) return;
     void Promise.resolve().then(loadNotifications);
-  }, [loadNotifications]);
+  }, [deferInitialLoad, loadNotifications]);
 
   useEffect(() => {
+    if (deferInitialLoad) return;
     void Promise.resolve().then(loadProfile);
-  }, [loadProfile]);
+  }, [deferInitialLoad, loadProfile]);
 
   useEffect(() => {
+    if (deferInitialLoad) return;
     const loadThemePreference = async () => {
       try {
         const authHeaders = await getAuthHeaders();
@@ -214,7 +286,7 @@ export function DashboardNavbar({ onLogout }: DashboardNavbarProps) {
     };
 
     void loadThemePreference();
-  }, []);
+  }, [deferInitialLoad]);
 
   const markNotificationRead = async (notification: DashboardNotification) => {
     if (notification.read) return;

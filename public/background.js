@@ -10,6 +10,7 @@ const pomodoroState = {
   distractionCount: 0,
   breakEndsAt: null,
   breakLateStartedAt: null,
+  lastFocusLossRecordedAt: 0,
 };
 
 const recentlyHandledTabs = new Map();
@@ -56,6 +57,9 @@ function applyStoredBackgroundState(storedState) {
     pomodoroState.breakLateStartedAt = Number.isFinite(Number(storedState.pomodoroState.breakLateStartedAt))
       ? Number(storedState.pomodoroState.breakLateStartedAt)
       : null;
+    pomodoroState.lastFocusLossRecordedAt = Number.isFinite(Number(storedState.pomodoroState.lastFocusLossRecordedAt))
+      ? Number(storedState.pomodoroState.lastFocusLossRecordedAt)
+      : 0;
   }
 }
 
@@ -235,6 +239,16 @@ function recordPomodoroDistraction(details = {}) {
   });
 }
 
+function recordPomodoroFocusLoss(details = {}) {
+  if (!isPomodoroFocusLocked()) return;
+
+  const now = Date.now();
+  if (now - pomodoroState.lastFocusLossRecordedAt < 2000) return;
+
+  pomodoroState.lastFocusLossRecordedAt = now;
+  recordPomodoroDistraction(details);
+}
+
 function enforcePomodoroFocus(tab, details = {}) {
   enforceFocusLock({
     enabled: isPomodoroFocusLocked(),
@@ -319,6 +333,7 @@ function handlePomodoroBreakCompleted(message, sender) {
 }
 
 function syncPomodoroState(message, sender) {
+  const previousPhase = pomodoroState.phase;
   const phase = typeof message.phase === 'string' ? message.phase : 'idle';
   pomodoroState.phase = phase;
   pomodoroState.focusTabId = Number.isInteger(message.focusTabId)
@@ -347,6 +362,14 @@ function syncPomodoroState(message, sender) {
 
   if (phase === 'idle') {
     pomodoroState.distractionCount = 0;
+    pomodoroState.lastFocusLossRecordedAt = 0;
+  } else if (
+    (phase === 'focus' || phase === 'paused') &&
+    previousPhase !== 'focus' &&
+    previousPhase !== 'paused'
+  ) {
+    pomodoroState.distractionCount = 0;
+    pomodoroState.lastFocusLossRecordedAt = 0;
   }
   persistBackgroundState();
 }
@@ -446,7 +469,11 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
         },
         (items) => {
           void chrome.runtime.lastError;
-          sendResponse({ ok: true, ...items });
+          sendResponse({
+            ok: true,
+            ...items,
+            pomodoroDistractionCount: pomodoroState.distractionCount,
+          });
         },
       );
       return;
@@ -479,6 +506,14 @@ chrome.tabs.onActivated.addListener(({ tabId }) => {
       if (chrome.runtime.lastError) return;
       enforceStrictModeOnTab(tab, { reason: 'tab-switch' });
     });
+  });
+});
+
+chrome.windows.onFocusChanged.addListener((windowId) => {
+  void hydrateBackgroundState().then(() => {
+    if (windowId === chrome.windows.WINDOW_ID_NONE) {
+      recordPomodoroFocusLoss({ reason: 'window-focus-lost' });
+    }
   });
 });
 
