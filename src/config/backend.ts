@@ -24,7 +24,7 @@ export const BACKEND_ROUTES = {
   flashcardGenerate: '/flashcards/generate',
   flashcardFromChat: '/flashcards/from-chat',
   flashcardReviews: '/flashcards/reviews',
-  flashcardReview: '/flashcards/{flashcard_id}/review', // replace {flashcard_id}
+  flashcardReviewComplete: '/flashcards/{deck_id}/review-complete', // replace {deck_id}
 
   // Quizzes
   quiz: '/quiz',

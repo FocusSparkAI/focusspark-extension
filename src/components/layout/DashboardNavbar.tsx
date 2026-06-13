@@ -168,7 +168,6 @@ export function DashboardNavbar({ onLogout }: DashboardNavbarProps) {
       const authHeaders = await getAuthHeaders();
       const response = await backendClient.get(BACKEND_ROUTES.studyNotifications, {
         headers: authHeaders,
-        params: { limit: 10 },
       });
       const nextNotifications = Array.isArray(response.data) ? response.data : [];
       setNotifications(nextNotifications);
@@ -190,6 +189,32 @@ export function DashboardNavbar({ onLogout }: DashboardNavbarProps) {
   useEffect(() => {
     void Promise.resolve().then(loadProfile);
   }, [loadProfile]);
+
+  useEffect(() => {
+    const loadThemePreference = async () => {
+      try {
+        const authHeaders = await getAuthHeaders();
+        const response = await backendClient.get(BACKEND_ROUTES.studySettings, {
+          headers: authHeaders,
+        });
+        const data = response.data ?? {};
+        const savedTheme =
+          data?.appearance?.theme ??
+          (typeof data?.dark_mode === 'boolean' ? (data.dark_mode ? 'dark' : 'light') : null);
+
+        if (savedTheme === 'light' || savedTheme === 'dark') {
+          const nextDark = savedTheme === 'dark';
+          setIsDark(nextDark);
+          void setStoredValue('focusspark-theme', savedTheme);
+          document.documentElement.classList.toggle('dark', nextDark);
+        }
+      } catch {
+        setIsDark(document.documentElement.classList.contains('dark'));
+      }
+    };
+
+    void loadThemePreference();
+  }, []);
 
   const markNotificationRead = async (notification: DashboardNotification) => {
     if (notification.read) return;
@@ -247,9 +272,14 @@ export function DashboardNavbar({ onLogout }: DashboardNavbarProps) {
 
   const toggleTheme = () => {
     const nextDark = !isDark;
+    const nextTheme = nextDark ? 'dark' : 'light';
     setIsDark(nextDark);
-    void setStoredValue('focusspark-theme', nextDark ? 'dark' : 'light');
+    void setStoredValue('focusspark-theme', nextTheme);
     document.documentElement.classList.toggle('dark', nextDark);
+    void backendClient.put(BACKEND_ROUTES.studySettings, {
+      dark_mode: nextDark,
+      appearance: { theme: nextTheme },
+    });
   };
 
   return (
@@ -303,7 +333,10 @@ export function DashboardNavbar({ onLogout }: DashboardNavbarProps) {
                 )}
               </DropdownMenuLabel>
               <DropdownMenuSeparator />
-              <div className="max-h-96 space-y-2 overflow-y-auto p-2">
+              <div
+                className="space-y-2 overflow-y-auto p-2"
+                style={{ maxHeight: 'calc(100vh - 10rem)', scrollbarGutter: 'stable' }}
+              >
                 {!extensionNotificationsEnabled && (
                   <div className="rounded-lg border border-border bg-background p-3 text-sm text-secondary">
                     <p className="font-medium text-foreground">Notifications off</p>

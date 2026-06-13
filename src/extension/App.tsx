@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo, useRef } from 'react';
+import { useState, useCallback, useEffect, useMemo, useRef } from 'react';
 import { Navigate, Route, Routes, useLocation, useNavigate } from 'react-router-dom';
 import { Navigation } from '../components/layout/Navigation';
 import { ExtensionHomePage } from '../pages/home/ExtensionHomePage';
@@ -16,9 +16,10 @@ import { toast } from 'sonner';
 import { FocusProvider } from '../context/FocusContext';
 import { PomodoroProvider } from '../context/PomodoroContext';
 import { usePomodoro } from '../hooks/usePomodoro';
-import { getStoredValue, setStoredValue } from '../utils/chromeStorage';
-import { clearAccessToken } from '../utils/backendClient';
+import { clearStoredValuesExcept, getStoredValue, setStoredValue } from '../utils/chromeStorage';
 import { FRONTEND_ROUTES, buildFrontendUrl } from '../config/frontend';
+import { BACKEND_ROUTES } from '../config/backend';
+import backendClient from '../utils/backendClient';
 import { ProtectedRoute } from './ProtectedRoute';
 
 type ChromeRuntimeApi = {
@@ -99,9 +100,40 @@ function AppContent() {
     };
   }, [currentPage, isStrictModeLocked, location]);
 
-  const [theme, setTheme] = useState<'light' | 'dark'>(() =>
-    window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light',
-  );
+  const [theme, setTheme] = useState<'light' | 'dark'>('light');
+
+  const applyTheme = useCallback((nextTheme: 'light' | 'dark') => {
+    setTheme(nextTheme);
+    void setStoredValue('focusspark-theme', nextTheme);
+    document.documentElement.classList.toggle('dark', nextTheme === 'dark');
+  }, []);
+
+  const loadThemePreference = useCallback(async () => {
+    try {
+      const response = await backendClient.get(BACKEND_ROUTES.studySettings);
+      const data = response.data ?? {};
+      const savedTheme =
+        data?.appearance?.theme ??
+        (typeof data?.dark_mode === 'boolean' ? (data.dark_mode ? 'dark' : 'light') : null);
+
+      if (savedTheme === 'light' || savedTheme === 'dark') {
+        applyTheme(savedTheme);
+      }
+    } catch {
+      // Keep the locally selected theme if backend settings are unavailable.
+    }
+  }, [applyTheme]);
+
+  const saveThemePreference = async (nextTheme: 'light' | 'dark') => {
+    try {
+      await backendClient.put(BACKEND_ROUTES.studySettings, {
+        dark_mode: nextTheme === 'dark',
+        appearance: { theme: nextTheme },
+      });
+    } catch {
+      // Local theme still applies immediately; backend sync can recover later.
+    }
+  };
 
   useEffect(() => {
     let isMounted = true;
@@ -109,9 +141,11 @@ function AppContent() {
     void getStoredValue('focusspark-theme').then((savedTheme) => {
       if (!isMounted) return;
       if (savedTheme === 'light' || savedTheme === 'dark') {
-        setTheme(savedTheme);
+        applyTheme(savedTheme);
       }
     });
+
+    void loadThemePreference();
 
     void getStoredValue('focusspark-strict-mode').then((storedStrictMode) => {
       if (!isMounted) return;
@@ -121,9 +155,9 @@ function AppContent() {
     return () => {
       isMounted = false;
     };
-  }, []);
+  }, [applyTheme, loadThemePreference]);
 
-  // Initialize theme from Chrome storage or system preference
+  // Initialize theme from Chrome storage, defaulting to light on first run
   useEffect(() => {
     // Prevent flash of unstyled content
     document.documentElement.classList.add('preload');
@@ -143,14 +177,8 @@ function AppContent() {
   // Toggle theme function
   const toggleTheme = () => {
     const newTheme = theme === 'dark' ? 'light' : 'dark';
-    setTheme(newTheme);
-    void setStoredValue('focusspark-theme', newTheme);
-
-    if (newTheme === 'dark') {
-      document.documentElement.classList.add('dark');
-    } else {
-      document.documentElement.classList.remove('dark');
-    }
+    applyTheme(newTheme);
+    void saveThemePreference(newTheme);
   };
 
   // Scroll to top when page changes
@@ -278,12 +306,14 @@ function AppContent() {
   };
 
   const handleAuthSuccess = () => {
+    void loadThemePreference();
     // After successful authentication, go to dashboard
     navigate(getPathFromPage('dashboard'));
   };
 
   const handleLogout = async () => {
-    await clearAccessToken();
+    await clearStoredValuesExcept(['focusspark-theme']);
+    setIsStrictModeLocked(false);
     navigate(getPathFromPage('home'));
   };
 

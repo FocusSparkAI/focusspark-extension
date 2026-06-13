@@ -8,7 +8,9 @@ export interface Flashcard {
   source: 'Topic' | 'Chat' | 'Document';
   difficulty: 'Easy' | 'Medium' | 'Hard';
   lastReviewed?: Date;
+  known?: boolean;
   correctCount: number;
+  incorrectCount: number;
   reviewInterval: number;
 }
 
@@ -150,7 +152,9 @@ export const mapCard = (value: unknown): Flashcard => {
     source,
     difficulty,
     lastReviewed: parseDate(c.last_reviewed ?? c.lastReviewed),
+    known: typeof c.known === 'boolean' ? c.known : undefined,
     correctCount: Number(c.correct_count ?? c.correctCount ?? 0),
+    incorrectCount: Number(c.incorrect_count ?? c.incorrectCount ?? 0),
     reviewInterval: Number(c.review_interval ?? c.reviewInterval ?? 1),
   };
 };

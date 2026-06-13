@@ -4,6 +4,8 @@ Chrome extension frontend for the FocusSpark study workspace. It gives students 
 
 Website-only pages such as the public landing pages, Science page, profile management, and long-form settings live in `FocusSpark-Frontend`.
 
+For the complete multi-project setup, start with the root `README.md`.
+
 ## What Is Included
 
 - Chrome Extension Manifest V3 setup
@@ -55,7 +57,7 @@ FocusSpark-Extension/
 
 ## Requirements
 
-- Node.js
+- Node.js 20+
 - npm
 - Google Chrome or another Chromium-based browser
 - FocusSpark backend available at `http://127.0.0.1:8000`
@@ -63,31 +65,50 @@ FocusSpark-Extension/
 
 ## Environment
 
-Create `.env` in `FocusSpark-Extension/` when you need to override the defaults.
+Create `.env` in `FocusSpark-Extension/` with the local service URLs:
 
 ```env
 VITE_BACKEND_BASE_URL=http://127.0.0.1:8000
 VITE_FRONTEND_BASE_URL=http://localhost:3000
 ```
 
-The extension falls back to those same local URLs when the variables are not set.
-
 `VITE_BACKEND_BASE_URL` points to the FastAPI API. `VITE_FRONTEND_BASE_URL` is used when the extension opens web-only pages in a normal browser tab.
+
+The default frontend URL assumes the web app is running on Vite port `3000`. If the web app uses another port, update `VITE_FRONTEND_BASE_URL` before building the extension.
 
 ## Local Development
 
+From this folder:
+
 ```bash
+cd FocusSpark-Extension
 npm install
 npm run dev
 ```
 
+This starts the Vite dev server for browser-based development. For local Chrome extension testing, build the extension and load the generated `build/` folder in Chrome.
+
 ## Build
 
+From this folder:
+
 ```bash
+cd FocusSpark-Extension
 npm run build
 ```
 
 The compiled extension is written to `build/`.
+
+## Local Chrome Testing
+
+1. Run `npm run build`.
+2. Open `chrome://extensions` in Chrome.
+3. Turn on Developer mode.
+4. Click Load unpacked.
+5. Select the `FocusSpark-Extension/build` folder.
+6. Click the FocusSpark extension icon to open the extension app.
+
+After code changes, run `npm run build` again and click the reload button for FocusSpark on `chrome://extensions`. After changing `public/manifest.json` or `public/background.js`, rebuild and reload the extension.
 
 ## Extension Routes
 
@@ -112,16 +133,6 @@ Routes handed off to the web frontend:
 - Profile
 - Settings
 - Notifications
-
-## Load In Chrome
-
-1. Run `npm run build`.
-2. Open `chrome://extensions`.
-3. Turn on Developer mode.
-4. Click Load unpacked.
-5. Select the `FocusSpark-Extension/build` folder.
-
-After changing `public/manifest.json` or `public/background.js`, rebuild and reload the extension.
 
 ## Behavior
 
