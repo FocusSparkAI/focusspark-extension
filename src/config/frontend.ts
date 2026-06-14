@@ -1,5 +1,9 @@
 const frontendBaseUrl = import.meta.env.VITE_FRONTEND_BASE_URL;
 
+if (!frontendBaseUrl) {
+  throw new Error('Missing VITE_FRONTEND_BASE_URL in .env');
+}
+
 export const FRONTEND_BASE_URL = frontendBaseUrl.replace(/\/+$/, '');
 
 export const FRONTEND_ROUTES = {
@@ -7,6 +11,8 @@ export const FRONTEND_ROUTES = {
   science: '/science',
   about: '/about',
   contact: '/contact',
+  privacy: '/privacy',
+  terms: '/terms',
   signup: '/signup',
   forgotPassword: '/forgot-password',
   dashboard: '/dashboard',

@@ -12,6 +12,16 @@ import {
 
 const POMODORO_STORAGE_KEY = 'focusspark-pomodoro-session';
 
+type ChromeRuntimeApi = {
+  runtime?: {
+    onMessage?: {
+      addListener: (listener: (message: unknown) => void) => void;
+      removeListener?: (listener: (message: unknown) => void) => void;
+    };
+    sendMessage?: (message: unknown, callback?: (response?: unknown) => void) => void;
+  };
+};
+
 type StoredPomodoroSession = {
   phase: PomodoroPhase;
   isActive: boolean;
@@ -109,6 +119,41 @@ export function PomodoroProvider({ children }: { children: ReactNode }) {
   }, [setSessionDistractionCountState]);
 
   useEffect(() => {
+    const chromeApi = (globalThis as typeof globalThis & { chrome?: ChromeRuntimeApi }).chrome;
+    if (!chromeApi?.runtime?.onMessage) return;
+
+    const listener = (message: unknown) => {
+      if (!message || typeof message !== 'object') return;
+
+      const runtimeMessage = message as { type?: string; count?: number };
+      if (runtimeMessage.type !== 'POMODORO_DISTRACTION_DETECTED') return;
+
+      const nextCount = Number(runtimeMessage.count ?? sessionDistractionCountRef.current + 1);
+      if (!Number.isFinite(nextCount)) return;
+
+      setSessionDistractionCount(Math.max(sessionDistractionCountRef.current, nextCount));
+    };
+
+    chromeApi.runtime.onMessage.addListener(listener);
+    return () => {
+      chromeApi.runtime?.onMessage?.removeListener?.(listener);
+    };
+  }, [setSessionDistractionCount]);
+
+  const getBackgroundPomodoroDistractionCount = useCallback(async () => {
+    const chromeApi = (globalThis as typeof globalThis & { chrome?: ChromeRuntimeApi }).chrome;
+    if (!chromeApi?.runtime?.sendMessage) return 0;
+
+    return new Promise<number>((resolve) => {
+      chromeApi.runtime?.sendMessage?.({ type: 'GET_POMODORO_METRICS' }, (response?: unknown) => {
+        const runtimeResponse = response as { pomodoroDistractionCount?: unknown } | undefined;
+        const count = Number(runtimeResponse?.pomodoroDistractionCount ?? 0);
+        resolve(Number.isFinite(count) ? Math.max(0, Math.floor(count)) : 0);
+      });
+    });
+  }, []);
+
+  useEffect(() => {
     if (!storageHydrated) return;
 
     if (phase === 'idle') {
@@ -161,8 +206,11 @@ export function PomodoroProvider({ children }: { children: ReactNode }) {
     plannedDurationMinutes: number,
     actualDurationMinutes: number,
     startedAt: Date,
+    completedDistractionCount: number,
   ) => {
     try {
+      const backgroundDistractionCount = await getBackgroundPomodoroDistractionCount();
+      const distractionCount = Math.max(completedDistractionCount, backgroundDistractionCount);
       const headers = await getAuthHeaders();
       const response = await backendClient.post(
         BACKEND_ROUTES.studySessions,
@@ -183,22 +231,28 @@ export function PomodoroProvider({ children }: { children: ReactNode }) {
         {
           ended_at: new Date().toISOString(),
           actual_duration_minutes: Math.max(0, actualDurationMinutes),
-          distraction_count: sessionDistractionCountRef.current,
+          distraction_count: distractionCount,
         },
         { headers },
       );
     } catch {
       // Saving should not interrupt the user's timer flow.
     }
-  }, []);
+  }, [getBackgroundPomodoroDistractionCount]);
 
   const completeBackendStudySession = useCallback((actualDurationMinutes: number) => {
     const startedAt = activeStudyStartedAtRef.current;
     if (!startedAt) return;
 
+    const completedDistractionCount = sessionDistractionCountRef.current;
     activeStudyStartedAtRef.current = null;
     setActiveStudyStartedAt(null);
-    void saveCompletedBackendStudySession(focusMinutes, actualDurationMinutes, startedAt);
+    void saveCompletedBackendStudySession(
+      focusMinutes,
+      actualDurationMinutes,
+      startedAt,
+      completedDistractionCount,
+    );
   }, [focusMinutes, saveCompletedBackendStudySession, setActiveStudyStartedAt]);
 
   const startSession = useCallback((type: PomodoroSessionType, customTimings?: { focusMinutes: number; breakMinutes: number }) => {
@@ -297,12 +351,13 @@ export function PomodoroProvider({ children }: { children: ReactNode }) {
   };
 
   const completeEarly = () => {
+    const actualDurationMinutes = Math.max(0, Math.ceil((totalTime - timeRemaining) / 60));
+    void completeBackendStudySession(actualDurationMinutes);
+
     setIsActive(false);
     setPhase('idle');
     setTimeRemaining(0);
     setTotalTime(0);
-    const actualDurationMinutes = Math.max(0, Math.ceil((totalTime - timeRemaining) / 60));
-    void completeBackendStudySession(actualDurationMinutes);
     
     // Mark session as completed early
     if (currentSessionId) {

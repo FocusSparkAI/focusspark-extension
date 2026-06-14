@@ -17,7 +17,7 @@ import {
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { DashboardSidebar } from '../../components/layout/DashboardSidebar';
-import { DashboardNavbar } from '../../components/layout/DashboardNavbar';
+import { DashboardNavbar, type DashboardNavbarBootstrap } from '../../components/layout/DashboardNavbar';
 import { PomodoroTimer } from '../../features/pomodoro/PomodoroTimer';
 import { ProgressStats } from '../../features/pomodoro/ProgressStats';
 import { FocusDetector } from '../../features/focus/FocusDetector';
@@ -29,7 +29,7 @@ import { useFocus } from '../../hooks/useFocus';
 import { usePomodoro } from '../../hooks/usePomodoro';
 import { BACKEND_ROUTES } from '../../config/backend';
 import backendClient, { getAuthHeaders } from '../../utils/backendClient';
-import { getStoredValue, setStoredValue } from '../../utils/chromeStorage';
+import { loadSavedPomodoroTimings, saveSavedPomodoroTimings } from '../../utils/pomodoroSettings';
 
 interface StudentDashboardProps {
   onNavigate: (page: string) => void;
@@ -79,6 +79,8 @@ export function StudentDashboard({ onNavigate, onLogout }: StudentDashboardProps
     isLoading: true,
   });
   const [profileName, setProfileName] = useState('');
+  const [navbarBootstrapData, setNavbarBootstrapData] = useState<DashboardNavbarBootstrap | null>(null);
+  const [navbarBootstrapFailed, setNavbarBootstrapFailed] = useState(false);
   const [savedFocusMinutes, setSavedFocusMinutes] = useState(25);
   const [savedBreakMinutes, setSavedBreakMinutes] = useState(5);
   const [draftFocusMinutes, setDraftFocusMinutes] = useState(savedFocusMinutes);
@@ -89,21 +91,13 @@ export function StudentDashboard({ onNavigate, onLogout }: StudentDashboardProps
   useEffect(() => {
     let isMounted = true;
 
-    void Promise.all([
-      getStoredValue('focusspark-extension-focus-minutes'),
-      getStoredValue('focusspark-extension-break-minutes'),
-    ]).then(([storedFocus, storedBreak]) => {
+    void loadSavedPomodoroTimings().then(({ focusMinutes, breakMinutes }) => {
       if (!isMounted) return;
 
-      const nextFocus = Number(storedFocus);
-      const nextBreak = Number(storedBreak);
-      const hydratedFocus = Number.isFinite(nextFocus) && nextFocus > 0 ? nextFocus : 25;
-      const hydratedBreak = Number.isFinite(nextBreak) && nextBreak > 0 ? nextBreak : 5;
-
-      setSavedFocusMinutes(hydratedFocus);
-      setSavedBreakMinutes(hydratedBreak);
-      setDraftFocusMinutes(hydratedFocus);
-      setDraftBreakMinutes(hydratedBreak);
+      setSavedFocusMinutes(focusMinutes);
+      setSavedBreakMinutes(breakMinutes);
+      setDraftFocusMinutes(focusMinutes);
+      setDraftBreakMinutes(breakMinutes);
     });
 
     return () => {
@@ -131,55 +125,43 @@ export function StudentDashboard({ onNavigate, onLogout }: StudentDashboardProps
     const loadDashboardStats = async () => {
       try {
         const authHeaders = await getAuthHeaders();
-        const [flashcardsResponse, quizzesResponse, studyResponse] = await Promise.all([
-          backendClient.get(BACKEND_ROUTES.flashcards, { headers: authHeaders }),
-          backendClient.get(BACKEND_ROUTES.quiz, { headers: authHeaders }),
-          backendClient.get(BACKEND_ROUTES.studyDashboardStats, { headers: authHeaders }),
-        ]);
+        const response = await backendClient.get(BACKEND_ROUTES.studyExtensionDashboard, { headers: authHeaders });
 
         if (!isMounted) return;
 
-        const decks = Array.isArray(flashcardsResponse.data) ? flashcardsResponse.data : [];
-        const quizzes = Array.isArray(quizzesResponse.data) ? quizzesResponse.data : [];
+        const data = response.data ?? {};
+        const dashboard = data.dashboard ?? {};
+        const counts = data.counts ?? {};
+        const profile = data.profile ?? {};
 
+        setNavbarBootstrapData(data as DashboardNavbarBootstrap);
+        setNavbarBootstrapFailed(false);
         setDashboardStats({
-          flashcardDecks: decks.length,
-          quizSets: quizzes.length,
-          currentStreak: Number(studyResponse.data?.current_streak ?? 0),
-          activeGoal: studyResponse.data?.active_goal ?? null,
-          todayGoals: Array.isArray(studyResponse.data?.today_goals) ? studyResponse.data.today_goals : [],
-          todayGoalStats: studyResponse.data?.today_goal_stats ?? null,
+          flashcardDecks: Number(counts.flashcard_decks ?? 0),
+          quizSets: Number(counts.quiz_sets ?? 0),
+          currentStreak: Number(dashboard.current_streak ?? 0),
+          activeGoal: dashboard.active_goal ?? null,
+          todayGoals: Array.isArray(dashboard.today_goals) ? dashboard.today_goals : [],
+          todayGoalStats: dashboard.today_goal_stats ?? null,
           isLoading: false,
         });
+        setProfileName(
+          profile.full_name ??
+            profile.fullName ??
+            profile.name ??
+            '',
+        );
       } catch {
         if (isMounted) {
           setDashboardStats((current) => ({ ...current, isLoading: false }));
+          setNavbarBootstrapData(null);
+          setNavbarBootstrapFailed(true);
+          setProfileName('');
         }
       }
     };
 
-    const loadProfile = async () => {
-      try {
-        const authHeaders = await getAuthHeaders();
-        const response = await backendClient.get(BACKEND_ROUTES.authProfile, {
-          headers: authHeaders,
-        });
-
-        if (!isMounted) return;
-
-        setProfileName(
-          response.data?.full_name ??
-            response.data?.fullName ??
-            response.data?.name ??
-            '',
-        );
-      } catch {
-        if (isMounted) setProfileName('');
-      }
-    };
-
     void loadDashboardStats();
-    void loadProfile();
 
     return () => {
       isMounted = false;
@@ -218,16 +200,13 @@ export function StudentDashboard({ onNavigate, onLogout }: StudentDashboardProps
   ];
 
   const savePomodoroTimings = () => {
-    const nextFocus = Math.min(120, Math.max(5, draftFocusMinutes));
-    const nextBreak = Math.min(60, Math.max(1, draftBreakMinutes));
-
-    setSavedFocusMinutes(nextFocus);
-    setSavedBreakMinutes(nextBreak);
-    setDraftFocusMinutes(nextFocus);
-    setDraftBreakMinutes(nextBreak);
-    void setStoredValue('focusspark-extension-focus-minutes', String(nextFocus));
-    void setStoredValue('focusspark-extension-break-minutes', String(nextBreak));
-    toast.success(`Saved ${nextFocus} min focus / ${nextBreak} min break`);
+    void saveSavedPomodoroTimings(draftFocusMinutes, draftBreakMinutes).then(({ focusMinutes, breakMinutes }) => {
+      setSavedFocusMinutes(focusMinutes);
+      setSavedBreakMinutes(breakMinutes);
+      setDraftFocusMinutes(focusMinutes);
+      setDraftBreakMinutes(breakMinutes);
+      toast.success(`Saved ${focusMinutes} min focus / ${breakMinutes} min break`);
+    });
   };
 
   const startSavedPomodoroInTutor = () => {
@@ -236,8 +215,7 @@ export function StudentDashboard({ onNavigate, onLogout }: StudentDashboardProps
 
     setSavedFocusMinutes(nextFocus);
     setSavedBreakMinutes(nextBreak);
-    void setStoredValue('focusspark-extension-focus-minutes', String(nextFocus));
-    void setStoredValue('focusspark-extension-break-minutes', String(nextBreak));
+    void saveSavedPomodoroTimings(nextFocus, nextBreak);
     startSession('custom', { focusMinutes: nextFocus, breakMinutes: nextBreak });
     onNavigate('chatbot');
   };
@@ -253,7 +231,11 @@ export function StudentDashboard({ onNavigate, onLogout }: StudentDashboardProps
       />
 
       <div className="flex min-w-0 flex-1 flex-col">
-        <DashboardNavbar onLogout={onLogout} />
+        <DashboardNavbar
+          onLogout={onLogout}
+          bootstrapData={navbarBootstrapData}
+          deferInitialLoad={!navbarBootstrapFailed}
+        />
 
         <main className="flex-1 overflow-auto p-4 pb-28 sm:p-6 sm:pb-28 lg:p-8">
           <div className="max-w-7xl mx-auto space-y-6">

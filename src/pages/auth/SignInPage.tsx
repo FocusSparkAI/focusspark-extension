@@ -154,8 +154,8 @@ export function SignInPage({ onNavigate, onAuthSuccess }: SignInPageProps) {
               transition={{ delay: 0.2, type: 'spring', stiffness: 200 }}
               className="inline-block mb-3"
             >
-              <div className="w-14 h-14 rounded-2xl bg-gradient-to-br from-blue-500 to-purple-600 flex items-center justify-center glow-blue-purple">
-                <Sparkles className="w-8 h-8 text-white" />
+              <div className="w-12 h-12 rounded-lg bg-gradient-to-br from-blue-500 to-purple-600 flex items-center justify-center glow-blue-purple">
+                <Sparkles className="w-7 h-7 text-white" />
               </div>
             </motion.div>
             

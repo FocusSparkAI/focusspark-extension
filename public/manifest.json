@@ -23,6 +23,7 @@
     "storage",
     "notifications",
     "tabs",
+    "windows",
     "alarms"
   ],
   "host_permissions": [

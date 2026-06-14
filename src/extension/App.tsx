@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo, useRef } from 'react';
+import { useState, useCallback, useEffect, useMemo, useRef } from 'react';
 import { Navigate, Route, Routes, useLocation, useNavigate } from 'react-router-dom';
 import { Navigation } from '../components/layout/Navigation';
 import { ExtensionHomePage } from '../pages/home/ExtensionHomePage';
@@ -16,9 +16,11 @@ import { toast } from 'sonner';
 import { FocusProvider } from '../context/FocusContext';
 import { PomodoroProvider } from '../context/PomodoroContext';
 import { usePomodoro } from '../hooks/usePomodoro';
-import { getStoredValue, setStoredValue } from '../utils/chromeStorage';
-import { clearAccessToken } from '../utils/backendClient';
+import { clearStoredValuesExcept, getStoredValue, setStoredValue } from '../utils/chromeStorage';
+import { loadSavedPomodoroTimings } from '../utils/pomodoroSettings';
 import { FRONTEND_ROUTES, buildFrontendUrl } from '../config/frontend';
+import { BACKEND_ROUTES } from '../config/backend';
+import backendClient from '../utils/backendClient';
 import { ProtectedRoute } from './ProtectedRoute';
 
 type ChromeRuntimeApi = {
@@ -61,12 +63,6 @@ const SPECIAL_PAGES = new Set([
   'webcam-test',
 ]);
 
-const readSavedPomodoroMinutes = async (key: string, fallback: number, min: number, max: number) => {
-  const value = Number(await getStoredValue(key));
-  if (!Number.isFinite(value)) return fallback;
-  return Math.min(max, Math.max(min, value));
-};
-
 function normalizePath(pathname: string) {
   if (pathname.length > 1 && pathname.endsWith('/')) {
     return pathname.slice(0, -1);
@@ -99,9 +95,40 @@ function AppContent() {
     };
   }, [currentPage, isStrictModeLocked, location]);
 
-  const [theme, setTheme] = useState<'light' | 'dark'>(() =>
-    window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light',
-  );
+  const [theme, setTheme] = useState<'light' | 'dark'>('light');
+
+  const applyTheme = useCallback((nextTheme: 'light' | 'dark') => {
+    setTheme(nextTheme);
+    void setStoredValue('focusspark-theme', nextTheme);
+    document.documentElement.classList.toggle('dark', nextTheme === 'dark');
+  }, []);
+
+  const loadThemePreference = useCallback(async () => {
+    try {
+      const response = await backendClient.get(BACKEND_ROUTES.studySettings);
+      const data = response.data ?? {};
+      const savedTheme =
+        data?.appearance?.theme ??
+        (typeof data?.dark_mode === 'boolean' ? (data.dark_mode ? 'dark' : 'light') : null);
+
+      if (savedTheme === 'light' || savedTheme === 'dark') {
+        applyTheme(savedTheme);
+      }
+    } catch {
+      // Keep the locally selected theme if backend settings are unavailable.
+    }
+  }, [applyTheme]);
+
+  const saveThemePreference = async (nextTheme: 'light' | 'dark') => {
+    try {
+      await backendClient.put(BACKEND_ROUTES.studySettings, {
+        dark_mode: nextTheme === 'dark',
+        appearance: { theme: nextTheme },
+      });
+    } catch {
+      // Local theme still applies immediately; backend sync can recover later.
+    }
+  };
 
   useEffect(() => {
     let isMounted = true;
@@ -109,9 +136,11 @@ function AppContent() {
     void getStoredValue('focusspark-theme').then((savedTheme) => {
       if (!isMounted) return;
       if (savedTheme === 'light' || savedTheme === 'dark') {
-        setTheme(savedTheme);
+        applyTheme(savedTheme);
       }
     });
+
+    const themePreferenceTimeoutId = window.setTimeout(() => void loadThemePreference(), 0);
 
     void getStoredValue('focusspark-strict-mode').then((storedStrictMode) => {
       if (!isMounted) return;
@@ -120,10 +149,11 @@ function AppContent() {
 
     return () => {
       isMounted = false;
+      window.clearTimeout(themePreferenceTimeoutId);
     };
-  }, []);
+  }, [applyTheme, loadThemePreference]);
 
-  // Initialize theme from Chrome storage or system preference
+  // Initialize theme from Chrome storage, defaulting to light on first run
   useEffect(() => {
     // Prevent flash of unstyled content
     document.documentElement.classList.add('preload');
@@ -143,14 +173,8 @@ function AppContent() {
   // Toggle theme function
   const toggleTheme = () => {
     const newTheme = theme === 'dark' ? 'light' : 'dark';
-    setTheme(newTheme);
-    void setStoredValue('focusspark-theme', newTheme);
-
-    if (newTheme === 'dark') {
-      document.documentElement.classList.add('dark');
-    } else {
-      document.documentElement.classList.remove('dark');
-    }
+    applyTheme(newTheme);
+    void saveThemePreference(newTheme);
   };
 
   // Scroll to top when page changes
@@ -259,10 +283,7 @@ function AppContent() {
     }
 
     if (page === 'quick-start') {
-      const [focusMinutes, breakMinutes] = await Promise.all([
-        readSavedPomodoroMinutes('focusspark-extension-focus-minutes', 25, 5, 120),
-        readSavedPomodoroMinutes('focusspark-extension-break-minutes', 5, 1, 60),
-      ]);
+      const { focusMinutes, breakMinutes } = await loadSavedPomodoroTimings();
 
       startSession('custom', { focusMinutes, breakMinutes });
       navigate(getPathFromPage('chatbot'));
@@ -278,20 +299,31 @@ function AppContent() {
   };
 
   const handleAuthSuccess = () => {
+    void loadThemePreference();
     // After successful authentication, go to dashboard
     navigate(getPathFromPage('dashboard'));
   };
 
   const handleLogout = async () => {
-    await clearAccessToken();
-    navigate(getPathFromPage('home'));
+    try {
+      await backendClient.post(BACKEND_ROUTES.authLogout);
+    } catch {
+      // Local logout should still complete if the server is unavailable.
+    } finally {
+      await clearStoredValuesExcept(['focusspark-theme']);
+      setIsStrictModeLocked(false);
+      navigate(getPathFromPage('home'));
+    }
   };
 
   // Pages that don't show nav and footer
   const isSpecialPage = SPECIAL_PAGES.has(currentPage);
 
   return (
-    <div className="min-h-screen bg-background text-foreground">
+    <div
+      className="min-h-screen bg-background text-foreground"
+      style={currentPage === 'home' ? { background: theme === 'dark' ? '#0F121A' : '#F7FAFC' } : undefined}
+    >
       {/* Theme Toggle - Position adjusted for special pages */}
       <ThemeToggle
         theme={theme}

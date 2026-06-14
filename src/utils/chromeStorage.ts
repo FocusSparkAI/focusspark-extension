@@ -2,6 +2,7 @@ type ChromeStorageArea = {
   get: (keys: string | string[] | Record<string, unknown> | null, callback: (items: Record<string, unknown>) => void) => void;
   set: (items: Record<string, unknown>, callback?: () => void) => void;
   remove: (keys: string | string[], callback?: () => void) => void;
+  clear: (callback?: () => void) => void;
 };
 
 type ChromeStorageApi = {
@@ -61,4 +62,25 @@ export function removeStoredValue(key: string): Promise<void> {
   return new Promise((resolve) => {
     chromeStorage.storage.remove(key, resolve);
   });
+}
+
+export async function clearStoredValuesExcept(keysToPreserve: string[] = []): Promise<void> {
+  const preservedEntries = await Promise.all(
+    keysToPreserve.map(async (key) => [key, await getStoredValue(key)] as const),
+  );
+  const chromeStorage = getChromeStorage();
+
+  if (!chromeStorage) {
+    memoryStorage.clear();
+  } else {
+    await new Promise<void>((resolve) => {
+      chromeStorage.storage.clear(resolve);
+    });
+  }
+
+  await Promise.all(
+    preservedEntries
+      .filter((entry): entry is readonly [string, string] => entry[1] !== null)
+      .map(([key, value]) => setStoredValue(key, value)),
+  );
 }

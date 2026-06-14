@@ -1,5 +1,9 @@
 const backendBaseUrl = import.meta.env.VITE_BACKEND_BASE_URL;
 
+if (!backendBaseUrl) {
+  throw new Error('Missing VITE_BACKEND_BASE_URL in .env');
+}
+
 export const BACKEND_BASE_URL = backendBaseUrl.replace(/\/+$/, '');
 
 export const BACKEND_ROUTES = {
@@ -11,6 +15,7 @@ export const BACKEND_ROUTES = {
 
   // Auth endpoints
   authLogin: '/auth/login',
+  authLogout: '/auth/logout',
   authProfile: '/auth/profile',
 
   // Chat endpoints
@@ -24,7 +29,7 @@ export const BACKEND_ROUTES = {
   flashcardGenerate: '/flashcards/generate',
   flashcardFromChat: '/flashcards/from-chat',
   flashcardReviews: '/flashcards/reviews',
-  flashcardReview: '/flashcards/{flashcard_id}/review', // replace {flashcard_id}
+  flashcardReviewComplete: '/flashcards/{deck_id}/review-complete', // replace {deck_id}
 
   // Quizzes
   quiz: '/quiz',
@@ -37,6 +42,8 @@ export const BACKEND_ROUTES = {
   studyNotification: '/study/notifications/{notification_id}', // replace {notification_id}
   studyNotificationsReadAll: '/study/notifications/read-all',
   studyDashboardStats: '/study/stats/dashboard',
+  studyFrontendDashboard: '/study/dashboard/frontend',
+  studyExtensionDashboard: '/study/dashboard/extension',
   studyGoals: '/study/goals',
   studySettings: '/study/settings',
   studySessions: '/study/sessions',

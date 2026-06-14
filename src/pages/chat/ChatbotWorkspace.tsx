@@ -29,7 +29,7 @@ import {
   getOrCreateTutorThreadId,
   resetTutorThread,
 } from '../../utils/aiClient';
-import { getAccessToken, getAuthHeaders } from '../../utils/backendClient';
+import backendClient, { getAccessToken, getAuthHeaders } from '../../utils/backendClient';
 import { usePomodoro } from '../../hooks/usePomodoro';
 import { ChatComposer } from '../../components/chat/ChatComposer';
 import { ChatMessageList } from '../../components/chat/ChatMessageList';
@@ -80,8 +80,38 @@ const readStoredRecord = async (key: string): Promise<Record<string, unknown>> =
   }
 };
 
+const getNestedRecord = (payload: Record<string, unknown>, key: string) => {
+  const value = payload[key];
+  return value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : undefined;
+};
+
 const getArtifactNumber = (payload: Record<string, unknown>) => {
-  const value = payload.id ?? payload.quiz_id ?? payload.quizId ?? payload.deck_id ?? payload.deckId ?? payload.artifact_id ?? payload.artifactId;
+  const quiz = getNestedRecord(payload, 'quiz');
+  const deck = getNestedRecord(payload, 'deck');
+  const data = getNestedRecord(payload, 'data');
+  const dataQuiz = data ? getNestedRecord(data, 'quiz') : undefined;
+  const dataDeck = data ? getNestedRecord(data, 'deck') : undefined;
+  const value =
+    payload.id ??
+    payload.quiz_id ??
+    payload.quizId ??
+    payload.deck_id ??
+    payload.deckId ??
+    payload.artifact_id ??
+    payload.artifactId ??
+    quiz?.id ??
+    quiz?.quiz_id ??
+    quiz?.quizId ??
+    deck?.id ??
+    deck?.deck_id ??
+    deck?.deckId ??
+    data?.id ??
+    data?.quiz_id ??
+    data?.quizId ??
+    data?.deck_id ??
+    data?.deckId ??
+    dataQuiz?.id ??
+    dataDeck?.id;
   const numericValue = Number(value);
   return Number.isFinite(numericValue) ? numericValue : undefined;
 };
@@ -103,7 +133,7 @@ const getProgressKeys = (message: Pick<Message, 'artifactId' | 'artifactTitle' |
 export function ChatbotWorkspace({ onNavigate, onStrictModeChange }: ChatbotWorkspaceProps = {}) {
   const chromeApi = (globalThis as typeof globalThis & { chrome?: ChromeWorkspaceApi }).chrome;
   const { setIsFocused, isDetectionEnabled, setIsDetectionEnabled, focusScore: contextFocusScore, setFocusScore: setContextFocusScore, setEmotionalState } = useFocus();
-  const { phase, setSessionDistractionCount } = usePomodoro();
+  const { phase, sessionDistractionCount, setSessionDistractionCount } = usePomodoro();
   const {
     messages,
     setMessages,
@@ -234,7 +264,12 @@ export function ChatbotWorkspace({ onNavigate, onStrictModeChange }: ChatbotWork
   const tabSwitchWarnCooldownRef = useRef(0);
   const prevFocusedRef = useRef(true);
   const strictDistractionCountRef = useRef(0);
+  const sessionDistractionCountRef = useRef(0);
+  const pomodoroCameraDistractionCountRef = useRef(0);
+  const pomodoroTabDistractionCountRef = useRef(0);
   const pomodoroDistractionBaseRef = useRef(0);
+  const submittedChatQuizAttemptIdsRef = useRef<Set<number>>(new Set());
+  const submittedChatFlashcardReviewIdsRef = useRef<Set<number>>(new Set());
   const previousPomodoroPhaseRef = useRef(phase);
   const strictModeBeforePomodoroRef = useRef(false);
   const autoStrictModeActiveRef = useRef(false);
@@ -248,6 +283,16 @@ export function ChatbotWorkspace({ onNavigate, onStrictModeChange }: ChatbotWork
   useEffect(() => {
     detectionEnabledRef.current = isDetectionEnabled;
   }, [isDetectionEnabled]);
+
+  useEffect(() => {
+    sessionDistractionCountRef.current = sessionDistractionCount;
+  }, [sessionDistractionCount]);
+
+  const setPomodoroSessionDistractions = useCallback((cameraCount: number, tabCount: number) => {
+    const nextCount = Math.max(0, Math.floor(cameraCount)) + Math.max(0, Math.floor(tabCount));
+    sessionDistractionCountRef.current = nextCount;
+    setSessionDistractionCount(nextCount);
+  }, [setSessionDistractionCount]);
 
   useEffect(() => {
     let isMounted = true;
@@ -265,11 +310,18 @@ export function ChatbotWorkspace({ onNavigate, onStrictModeChange }: ChatbotWork
   }, [onStrictModeChange]);
 
   useEffect(() => {
-    if (phase === 'focus') {
+    const wasPomodoroFocus = previousPomodoroPhaseRef.current === 'focus' || previousPomodoroPhaseRef.current === 'paused';
+    const isPomodoroFocus = phase === 'focus' || phase === 'paused';
+
+    if (!wasPomodoroFocus && isPomodoroFocus) {
       pomodoroDistractionBaseRef.current = strictDistractionCountRef.current;
+      pomodoroCameraDistractionCountRef.current = 0;
+      pomodoroTabDistractionCountRef.current = 0;
     }
 
     if (phase === 'idle') {
+      pomodoroCameraDistractionCountRef.current = 0;
+      pomodoroTabDistractionCountRef.current = 0;
       setSessionDistractionCount(0);
     }
   }, [phase, setSessionDistractionCount]);
@@ -329,11 +381,18 @@ export function ChatbotWorkspace({ onNavigate, onStrictModeChange }: ChatbotWork
 
     warnCooldownRef.current = now;
     setFocusDriftCount((count) => count + 1);
+    if ((phase === 'focus' || phase === 'paused') && detectionEnabledRef.current) {
+      pomodoroCameraDistractionCountRef.current += 1;
+      setPomodoroSessionDistractions(
+        pomodoroCameraDistractionCountRef.current,
+        pomodoroTabDistractionCountRef.current,
+      );
+    }
     showTopToast('warning', 'You are distracted. Refocus on your session.', {
       id: 'chat-focus-distracted',
       duration: 3000,
     });
-  }, [showTopToast]);
+  }, [phase, setPomodoroSessionDistractions, showTopToast]);
 
   const normalizeFocused = (value: unknown): boolean | null => {
     if (typeof value === 'boolean') return value;
@@ -512,7 +571,12 @@ export function ChatbotWorkspace({ onNavigate, onStrictModeChange }: ChatbotWork
         strictDistractionCountRef.current = nextCount;
         setDistractionCount(nextCount);
         if (phase === 'focus' || phase === 'paused') {
-          setSessionDistractionCount(Math.max(0, nextCount - pomodoroDistractionBaseRef.current));
+          const nextSessionCount = Math.max(0, nextCount - pomodoroDistractionBaseRef.current);
+          pomodoroTabDistractionCountRef.current = nextSessionCount;
+          setPomodoroSessionDistractions(
+            pomodoroCameraDistractionCountRef.current,
+            pomodoroTabDistractionCountRef.current,
+          );
         }
 
         showTopToast('warning', 'Tab changed detected. Please return to your study tab.', {
@@ -532,7 +596,13 @@ export function ChatbotWorkspace({ onNavigate, onStrictModeChange }: ChatbotWork
         const nextCount = Number(runtimeMessage.count || 1);
         strictDistractionCountRef.current = nextCount;
         setDistractionCount(nextCount);
-        setSessionDistractionCount(nextCount);
+        if (phase === 'focus' || phase === 'paused') {
+          pomodoroTabDistractionCountRef.current = nextCount;
+          setPomodoroSessionDistractions(
+            pomodoroCameraDistractionCountRef.current,
+            pomodoroTabDistractionCountRef.current,
+          );
+        }
 
         showTopToast('warning', 'Tab changed during Pomodoro. Stay in your focus workspace.', {
           id: 'chat-pomodoro-tab-changed',
@@ -561,7 +631,7 @@ export function ChatbotWorkspace({ onNavigate, onStrictModeChange }: ChatbotWork
         chromeApi.runtime.onMessage.removeListener(listener);
       }
     };
-  }, [chromeApi?.runtime?.onMessage, isStrictMode, onStrictModeChange, phase, setSessionDistractionCount, showTopToast]);
+  }, [chromeApi?.runtime?.onMessage, isStrictMode, onStrictModeChange, phase, setPomodoroSessionDistractions, showTopToast]);
 
   useEffect(() => {
     const onVisibilityChange = () => {
@@ -576,7 +646,12 @@ export function ChatbotWorkspace({ onNavigate, onStrictModeChange }: ChatbotWork
         strictDistractionCountRef.current = nextCount;
         setDistractionCount(nextCount);
         if (phase === 'focus' || phase === 'paused') {
-          setSessionDistractionCount(nextCount);
+          const nextSessionCount = Math.max(0, nextCount - pomodoroDistractionBaseRef.current);
+          pomodoroTabDistractionCountRef.current = nextSessionCount;
+          setPomodoroSessionDistractions(
+            pomodoroCameraDistractionCountRef.current,
+            pomodoroTabDistractionCountRef.current,
+          );
         }
 
         showTopToast('warning', 'You switched tabs or apps. Return to your study session.', {
@@ -594,7 +669,7 @@ export function ChatbotWorkspace({ onNavigate, onStrictModeChange }: ChatbotWork
 
     document.addEventListener('visibilitychange', onVisibilityChange);
     return () => document.removeEventListener('visibilitychange', onVisibilityChange);
-  }, [isStrictMode, phase, setSessionDistractionCount, showTopToast]);
+  }, [isStrictMode, phase, setPomodoroSessionDistractions, showTopToast]);
 
   useEffect(() => {
     const onWindowBlur = () => {
@@ -608,7 +683,12 @@ export function ChatbotWorkspace({ onNavigate, onStrictModeChange }: ChatbotWork
       strictDistractionCountRef.current = nextCount;
       setDistractionCount(nextCount);
       if (phase === 'focus' || phase === 'paused') {
-        setSessionDistractionCount(nextCount);
+        const nextSessionCount = Math.max(0, nextCount - pomodoroDistractionBaseRef.current);
+        pomodoroTabDistractionCountRef.current = nextSessionCount;
+        setPomodoroSessionDistractions(
+          pomodoroCameraDistractionCountRef.current,
+          pomodoroTabDistractionCountRef.current,
+        );
       }
 
       showTopToast('warning', 'You switched tabs or apps. Return to your study session.', {
@@ -619,7 +699,7 @@ export function ChatbotWorkspace({ onNavigate, onStrictModeChange }: ChatbotWork
 
     window.addEventListener('blur', onWindowBlur);
     return () => window.removeEventListener('blur', onWindowBlur);
-  }, [isStrictMode, phase, setSessionDistractionCount, showTopToast]);
+  }, [isStrictMode, phase, setPomodoroSessionDistractions, showTopToast]);
   // Hide welcome animation after 2 seconds
   useEffect(() => {
     const timer = setTimeout(() => {
@@ -632,6 +712,77 @@ export function ChatbotWorkspace({ onNavigate, onStrictModeChange }: ChatbotWork
   useEffect(() => {
     chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
+
+  const submitCompletedChatQuizAttempt = useCallback(async (message: Message) => {
+    if (message.type !== 'quiz' || !message.quizData?.length || typeof message.artifactId !== 'number') return;
+    if (submittedChatQuizAttemptIdsRef.current.has(message.artifactId)) return;
+
+    const answers = message.quizData.map((question) => ({
+      question_id: Number(question.id),
+      selected_answer_index: quizAnswers[question.id],
+    }));
+
+    if (answers.some((answer) => !Number.isFinite(answer.question_id) || typeof answer.selected_answer_index !== 'number')) {
+      return;
+    }
+
+    submittedChatQuizAttemptIdsRef.current.add(message.artifactId);
+
+    try {
+      const authHeaders = await getAuthHeaders();
+      const completedAt = new Date();
+      const startedAt = message.timestamp instanceof Date ? message.timestamp : new Date(message.timestamp);
+
+      await backendClient.post(
+        BACKEND_ROUTES.quizAttempts.replace('{quiz_id}', String(message.artifactId)),
+        {
+          answers,
+          started_at: startedAt.toISOString(),
+          completed_at: completedAt.toISOString(),
+          time_taken_seconds: Math.max(0, Math.round((completedAt.getTime() - startedAt.getTime()) / 1000)),
+        },
+        { headers: authHeaders },
+      );
+    } catch (error) {
+      submittedChatQuizAttemptIdsRef.current.delete(message.artifactId);
+      console.warn('Chat quiz attempt could not be saved to backend.', error);
+    }
+  }, [quizAnswers]);
+
+  const submitCompletedChatFlashcardReview = useCallback(async (message: Message) => {
+    if (message.type !== 'flashcard' || !message.flashcards?.length || typeof message.artifactId !== 'number') return;
+    if (submittedChatFlashcardReviewIdsRef.current.has(message.artifactId)) return;
+
+    const reviews = message.flashcards.map((card) => ({
+      flashcard_id: Number(card.id),
+      known: card.known === true,
+      correct_count: card.known === true ? 1 : 0,
+      incorrect_count: card.known === true ? 0 : 1,
+    }));
+
+    const allCardsReviewed = message.flashcards.every((card) => card.reviewed === true);
+    if (
+      !allCardsReviewed ||
+      reviews.some((review) => !Number.isFinite(review.flashcard_id) || typeof review.known !== 'boolean')
+    ) {
+      return;
+    }
+
+    submittedChatFlashcardReviewIdsRef.current.add(message.artifactId);
+
+    try {
+      const authHeaders = await getAuthHeaders();
+
+      await backendClient.put(
+        BACKEND_ROUTES.flashcardReviewComplete.replace('{deck_id}', String(message.artifactId)),
+        { reviews },
+        { headers: authHeaders },
+      );
+    } catch (error) {
+      submittedChatFlashcardReviewIdsRef.current.delete(message.artifactId);
+      console.warn('Chat flashcard review could not be saved to backend.', error);
+    }
+  }, []);
 
   useEffect(() => {
     let isMounted = true;
@@ -663,6 +814,10 @@ export function ChatbotWorkspace({ onNavigate, onStrictModeChange }: ChatbotWork
           records[key] = record;
           changed = true;
         });
+
+        if (answered.length === message.quizData.length) {
+          void submitCompletedChatQuizAttempt(message);
+        }
       });
 
       if (changed) {
@@ -673,7 +828,7 @@ export function ChatbotWorkspace({ onNavigate, onStrictModeChange }: ChatbotWork
     return () => {
       isMounted = false;
     };
-  }, [messages, quizAnswers]);
+  }, [messages, quizAnswers, submitCompletedChatQuizAttempt]);
 
   useEffect(() => {
     let isMounted = true;
@@ -687,15 +842,16 @@ export function ChatbotWorkspace({ onNavigate, onStrictModeChange }: ChatbotWork
       messages.forEach((message) => {
         if (message.type !== 'flashcard' || !message.flashcards?.length) return;
 
-        const reviewed = message.flashcards.filter((card) => card.known);
+        const reviewed = message.flashcards.filter((card) => card.reviewed);
         if (reviewed.length === 0) return;
 
+        const known = reviewed.filter((card) => card.known);
         const progress = Math.round((reviewed.length / message.flashcards.length) * 100);
         const record = {
           progress,
-          accuracy: 100,
+          accuracy: Math.round((known.length / reviewed.length) * 100),
           reviewCount: reviewed.length,
-          knownCardIds: reviewed.map((card) => card.id),
+          knownCardIds: known.map((card) => card.id),
           lastReviewed: new Date().toISOString(),
         };
 
@@ -703,6 +859,10 @@ export function ChatbotWorkspace({ onNavigate, onStrictModeChange }: ChatbotWork
           records[key] = record;
           changed = true;
         });
+
+        if (reviewed.length === message.flashcards.length) {
+          void submitCompletedChatFlashcardReview(message);
+        }
       });
 
       if (changed) {
@@ -713,7 +873,7 @@ export function ChatbotWorkspace({ onNavigate, onStrictModeChange }: ChatbotWork
     return () => {
       isMounted = false;
     };
-  }, [messages]);
+  }, [messages, submitCompletedChatFlashcardReview]);
 
   // Emotional Feedback Popup - show at camera-off start, then periodically.
   useEffect(() => {
@@ -1240,7 +1400,7 @@ export function ChatbotWorkspace({ onNavigate, onStrictModeChange }: ChatbotWork
         return {
           ...message,
           flashcards: message.flashcards.map((card) =>
-            card.id === cardId ? { ...card, known } : card,
+            card.id === cardId ? { ...card, known, reviewed: true } : card,
           ),
         };
       }),

@@ -24,6 +24,7 @@ export interface Flashcard {
   tags: string[];
   difficulty: 'easy' | 'medium' | 'hard';
   known: boolean;
+  reviewed?: boolean;
 }
 
 export interface QuizQuestion {

@@ -50,6 +50,7 @@ import {
 import { CHAT_FLASHCARD_PROGRESS_KEY } from '../../types/ChatTypes';
 import { formatUserDate } from '../../utils/timezone';
 import { getStoredValue, setStoredValue } from '../../utils/chromeStorage';
+import { FlashcardReviewSummaryDialog } from './FlashcardReviewSummaryDialog';
 
 interface FlashcardDeckScreenProps {
   onNavigate: (page: string) => void;
@@ -105,17 +106,29 @@ const getCardProgressRecord = (deck: Deck, card: Flashcard) => {
   return records[`deck:${deck.id}:card:${card.id}`] ?? records[`card:${card.id}`];
 };
 
+const getDeckReviewProgressRecord = (deck: Deck) => readFlashcardReviewProgress()[`deck:${deck.id}`];
+
 const applyFlashcardReviewProgress = (deck: Deck): Deck => {
+  const deckRecord = getDeckReviewProgressRecord(deck);
+  const savedReviewCount = Number(deckRecord?.reviewCount);
+  const savedAccuracy = Number(deckRecord?.accuracy);
+  const savedProgress = Number(deckRecord?.progress);
+  const savedLastReviewed = parseProgressDate(deckRecord?.lastReviewed);
+  const totalCards = deck.totalCards || deck.cards.length;
+  const hasCompletedSavedAttempt = totalCards > 0 && Number.isFinite(savedReviewCount) && savedReviewCount >= totalCards;
   const cards = deck.cards.map((card) => {
-    const record = getCardProgressRecord(deck, card);
+    const record = hasCompletedSavedAttempt ? getCardProgressRecord(deck, card) : undefined;
     if (!record) return card;
 
     const correctCount = Number(record.correctCount);
+    const incorrectCount = Number(record.incorrectCount);
     const lastReviewed = parseProgressDate(record.lastReviewed);
 
     return {
       ...card,
       correctCount: Number.isFinite(correctCount) ? Math.max(card.correctCount, correctCount) : card.correctCount,
+      incorrectCount: Number.isFinite(incorrectCount) ? Math.max(card.incorrectCount, incorrectCount) : card.incorrectCount,
+      known: typeof record.known === 'boolean' ? record.known : card.known,
       lastReviewed: lastReviewed ?? card.lastReviewed,
     };
   });
@@ -124,15 +137,30 @@ const applyFlashcardReviewProgress = (deck: Deck): Deck => {
     .map((card) => card.lastReviewed?.getTime())
     .filter((time): time is number => typeof time === 'number' && Number.isFinite(time));
   const reviewedCount = cards.filter((card) => card.lastReviewed).length;
-  const knownCount = cards.filter((card) => card.correctCount > 0).length;
+  const totalCorrect = cards.reduce((sum, card) => sum + card.correctCount, 0);
+  const totalIncorrect = cards.reduce((sum, card) => sum + card.incorrectCount, 0);
+  const totalAttempts = totalCorrect + totalIncorrect;
+  const latestKnownCount = cards.filter((card) => card.known === true).length;
+  const hasLatestAttemptResult = totalCards > 0 && reviewedCount >= totalCards && cards.some((card) => typeof card.known === 'boolean');
+  const latestAttemptProgress = hasLatestAttemptResult ? Math.round((latestKnownCount / totalCards) * 100) : undefined;
 
   return {
     ...deck,
     cards,
-    reviewCount: Math.max(deck.reviewCount, reviewedCount),
-    progress: deck.totalCards > 0 ? Math.max(deck.progress, Math.round((reviewedCount / deck.totalCards) * 100)) : deck.progress,
-    accuracy: reviewedCount > 0 ? Math.max(deck.accuracy, Math.round((knownCount / reviewedCount) * 100)) : deck.accuracy,
-    lastReviewed: deck.lastReviewed ?? (lastReviewedTimes.length > 0 ? new Date(Math.max(...lastReviewedTimes)) : undefined),
+    reviewCount: Math.max(deck.reviewCount, reviewedCount, hasCompletedSavedAttempt ? savedReviewCount : 0),
+    progress: totalCards > 0
+      ? latestAttemptProgress ?? Math.max(
+        deck.progress,
+        Number.isFinite(savedProgress) ? savedProgress : 0,
+      )
+      : deck.progress,
+    accuracy: totalAttempts > 0
+      ? Math.round((totalCorrect / totalAttempts) * 100)
+      : hasCompletedSavedAttempt && Number.isFinite(savedAccuracy) ? savedAccuracy : deck.accuracy,
+    lastReviewed:
+      deck.lastReviewed ??
+      (hasCompletedSavedAttempt ? savedLastReviewed : undefined) ??
+      (lastReviewedTimes.length > 0 ? new Date(Math.max(...lastReviewedTimes)) : undefined),
   };
 };
 
@@ -162,6 +190,7 @@ const applyChatFlashcardProgress = (deck: Deck): Deck => {
         ? {
             ...card,
             correctCount: Math.max(card.correctCount, 1),
+            known: true,
             lastReviewed: card.lastReviewed ?? lastReviewed,
           }
         : card,
@@ -169,19 +198,40 @@ const applyChatFlashcardProgress = (deck: Deck): Deck => {
   };
 };
 
-const saveFlashcardReviewProgress = async (deck: Deck, card: Flashcard) => {
-  const record = {
+const getDeckAccuracyFromCards = (cards: Flashcard[], fallback = 0) => {
+  const totalCorrect = cards.reduce((sum, card) => sum + card.correctCount, 0);
+  const totalIncorrect = cards.reduce((sum, card) => sum + card.incorrectCount, 0);
+  const totalAttempts = totalCorrect + totalIncorrect;
+  return totalAttempts > 0 ? Math.round((totalCorrect / totalAttempts) * 100) : fallback;
+};
+
+const saveFlashcardReviewProgress = async (deck: Deck, reviewedDeck: Deck, cardsToSave: Flashcard[] = []) => {
+  const deckRecord = {
     deckId: deck.id,
-    cardId: card.id,
-    correctCount: card.correctCount,
-    lastReviewed: card.lastReviewed?.toISOString(),
+    progress: reviewedDeck.progress,
+    accuracy: reviewedDeck.accuracy,
+    reviewCount: reviewedDeck.reviewCount,
+    lastReviewed: reviewedDeck.lastReviewed?.toISOString(),
   };
 
   flashcardReviewProgressCache = {
     ...flashcardReviewProgressCache,
-    [`deck:${deck.id}:card:${card.id}`]: record,
-    [`card:${card.id}`]: record,
+    [`deck:${deck.id}`]: deckRecord,
   };
+
+  cardsToSave.forEach((card) => {
+    const record = {
+      deckId: deck.id,
+      cardId: card.id,
+      correctCount: card.correctCount,
+      incorrectCount: card.incorrectCount,
+      known: card.known,
+      lastReviewed: card.lastReviewed?.toISOString(),
+    };
+
+    flashcardReviewProgressCache[`deck:${deck.id}:card:${card.id}`] = record;
+    flashcardReviewProgressCache[`card:${card.id}`] = record;
+  });
 
   await setStoredValue(FLASHCARD_REVIEW_PROGRESS_KEY, JSON.stringify(flashcardReviewProgressCache));
 };
@@ -207,6 +257,7 @@ export function FlashcardDeckScreen({ onNavigate }: FlashcardDeckScreenProps) {
   const [isLoadingDecks, setIsLoadingDecks] = useState(false);
   const [isLoadingDeckDetails, setIsLoadingDeckDetails] = useState(false);
   const [showCreateDialog, setShowCreateDialog] = useState(false);
+  const [showSummary, setShowSummary] = useState(false);
   const [newTopic, setNewTopic] = useState('');
   const [newCardCount, setNewCardCount] = useState('5');
   const [isCreatingDeck, setIsCreatingDeck] = useState(false);
@@ -303,6 +354,7 @@ export function FlashcardDeckScreen({ onNavigate }: FlashcardDeckScreenProps) {
       setStudyControlsLocked(false);
       setAnsweredCardIds(new Set());
       setAttemptResults({});
+      setShowSummary(false);
     } catch (err: unknown) {
       const status = getResponseStatus(err);
       if (status === 401) {
@@ -354,6 +406,7 @@ export function FlashcardDeckScreen({ onNavigate }: FlashcardDeckScreenProps) {
         setStudyControlsLocked(false);
         setAnsweredCardIds(new Set());
         setAttemptResults({});
+        setShowSummary(false);
       }
 
       setShowCreateDialog(false);
@@ -465,6 +518,7 @@ export function FlashcardDeckScreen({ onNavigate }: FlashcardDeckScreenProps) {
             source: 'Chat',
             difficulty,
             correctCount: Number(card.correctCount ?? card.correct_count ?? 0),
+            incorrectCount: Number(card.incorrectCount ?? card.incorrect_count ?? 0),
             reviewInterval: 1,
           };
         })
@@ -492,6 +546,7 @@ export function FlashcardDeckScreen({ onNavigate }: FlashcardDeckScreenProps) {
         setStreak(0);
         setAnsweredCardIds(new Set());
         setAttemptResults({});
+        setShowSummary(false);
       });
     } catch {
       toast.error('Could not open the generated flashcards from chat history.');
@@ -518,7 +573,12 @@ export function FlashcardDeckScreen({ onNavigate }: FlashcardDeckScreenProps) {
   const currentCard = selectedDeck?.cards[currentCardIndex];
   const hasAnsweredCurrentCard = currentCard ? answeredCardIds.has(currentCard.id) : false;
   const isCurrentCardRevealed = currentCard ? revealedCardIds.has(currentCard.id) : false;
-  const canAnswerCurrentCard = !isCurrentCardRevealed && !hasAnsweredCurrentCard && !isSavingReview;
+  const canAnswerCurrentCard = !hasAnsweredCurrentCard && !isSavingReview;
+  const attemptKnownCount = Object.values(attemptResults).filter(Boolean).length;
+  const attemptTotal = selectedDeck?.cards.length ?? 0;
+  const attemptReviewedCount = Object.keys(attemptResults).length;
+  const attemptNeedsReviewCount = Math.max(0, attemptTotal - attemptKnownCount);
+  const attemptMastery = attemptTotal > 0 ? Math.round((attemptKnownCount / attemptTotal) * 100) : 0;
 
   const isKeyboardInputTarget = (target: EventTarget | null) => {
     const element = target as HTMLElement | null;
@@ -528,8 +588,10 @@ export function FlashcardDeckScreen({ onNavigate }: FlashcardDeckScreenProps) {
 
   const revealCurrentCard = () => {
     if (currentCard && !isCurrentCardRevealed) {
-      setStudyControlsLocked(true);
       setRevealedCardIds((current) => new Set(current).add(currentCard.id));
+      if (!hasAnsweredCurrentCard) {
+        void handleCardReview(false, { autoAdvance: false });
+      }
     }
   };
 
@@ -545,23 +607,27 @@ export function FlashcardDeckScreen({ onNavigate }: FlashcardDeckScreenProps) {
     }
   };
 
-  const handleCardReview = async (known: boolean) => {
-    if (!selectedDeck || !currentCard || !canAnswerCurrentCard) return;
+  const submitCompletedDeckReview = async (deck: Deck, results: Record<string, boolean>) => {
+    const deckId = Number(deck.id);
+    if (!Number.isFinite(deckId)) return;
 
-    setStudyControlsLocked(true);
+    const reviews = deck.cards.map((card) => ({
+      flashcard_id: Number(card.id),
+      known: results[card.id] === true,
+      correct_count: results[card.id] === true ? 1 : 0,
+      incorrect_count: results[card.id] === true ? 0 : 1,
+    }));
 
-    const newStreak = known ? streak + 1 : 0;
-    setStreak(newStreak);
+    if (reviews.some((review) => !Number.isFinite(review.flashcard_id) || typeof review.known !== 'boolean')) {
+      return;
+    }
+
     setIsSavingReview(true);
     try {
       const authHeaders = await getAuthHeaders();
       await backendClient.put(
-        BACKEND_ROUTES.flashcardReview.replace('{flashcard_id}', currentCard.id),
-        {
-          known,
-          correct_count: known ? 1 : 0,
-          incorrect_count: known ? 0 : 1,
-        },
+        BACKEND_ROUTES.flashcardReviewComplete.replace('{deck_id}', deck.id),
+        { reviews },
         { headers: authHeaders },
       );
     } catch (err: unknown) {
@@ -569,41 +635,62 @@ export function FlashcardDeckScreen({ onNavigate }: FlashcardDeckScreenProps) {
       if (status === 401) {
         toast.error('Unauthorized. Please sign in to save review progress.');
       } else {
-        toast.warning('Review progress could not be saved, but you can keep studying.');
+        toast.warning('Completed review could not be saved, but your local progress is kept.');
       }
     } finally {
       setIsSavingReview(false);
     }
+  };
+
+  const handleCardReview = async (known: boolean, options: { autoAdvance?: boolean } = {}) => {
+    if (!selectedDeck || !currentCard || !canAnswerCurrentCard) return;
+
+    setStudyControlsLocked(true);
+
+    const newStreak = known ? streak + 1 : 0;
+    setStreak(newStreak);
 
     const nextAttemptResults = {
       ...attemptResults,
       [currentCard.id]: known,
     };
     const answeredCount = Object.keys(nextAttemptResults).length;
-    const correctCount = Object.values(nextAttemptResults).filter(Boolean).length;
-    const nextProgress = Math.round((answeredCount / selectedDeck.cards.length) * 100);
-    const nextAccuracy = answeredCount > 0 ? Math.round((correctCount / answeredCount) * 100) : 0;
     const reviewedAt = new Date();
+    const isAttemptComplete = answeredCount === selectedDeck.cards.length;
+    const knownCount = Object.values(nextAttemptResults).filter(Boolean).length;
+    const nextProgress = isAttemptComplete
+      ? Math.round((knownCount / selectedDeck.cards.length) * 100)
+      : selectedDeck.progress;
 
-    const reviewedCard = {
-      ...currentCard,
-      correctCount: known ? currentCard.correctCount + 1 : currentCard.correctCount,
-      lastReviewed: reviewedAt,
-    };
+    const reviewedCards = selectedDeck.cards.map((card) =>
+      isAttemptComplete
+        ? {
+            ...card,
+            known: nextAttemptResults[card.id] === true,
+            correctCount: nextAttemptResults[card.id] === true ? card.correctCount + 1 : card.correctCount,
+            incorrectCount: nextAttemptResults[card.id] === true ? card.incorrectCount : card.incorrectCount + 1,
+            lastReviewed: reviewedAt,
+          }
+        : card.id === currentCard.id
+          ? {
+              ...card,
+              lastReviewed: reviewedAt,
+            }
+          : card,
+    );
+    const lifetimeAccuracy = isAttemptComplete
+      ? getDeckAccuracyFromCards(reviewedCards, selectedDeck.accuracy)
+      : selectedDeck.accuracy;
 
     const reviewedDeck = {
       ...selectedDeck,
       progress: nextProgress,
-      accuracy: nextAccuracy,
-      reviewCount: answeredCount,
-      lastReviewed: reviewedAt,
-      cards: selectedDeck.cards.map((card) =>
-        card.id === currentCard.id
-          ? reviewedCard
-          : card,
-      ),
+      accuracy: lifetimeAccuracy,
+      reviewCount: isAttemptComplete ? selectedDeck.cards.length : selectedDeck.reviewCount,
+      lastReviewed: isAttemptComplete ? reviewedAt : selectedDeck.lastReviewed,
+      cards: reviewedCards,
     };
-    void saveFlashcardReviewProgress(selectedDeck, reviewedCard);
+    void saveFlashcardReviewProgress(selectedDeck, reviewedDeck, isAttemptComplete ? reviewedCards : []);
     setSelectedDeck(reviewedDeck);
     setAnsweredCardIds((current) => new Set(current).add(currentCard.id));
     setAttemptResults(nextAttemptResults);
@@ -613,9 +700,9 @@ export function FlashcardDeckScreen({ onNavigate }: FlashcardDeckScreenProps) {
           ? {
               ...deck,
               progress: nextProgress,
-              accuracy: nextAccuracy,
-              reviewCount: answeredCount,
-              lastReviewed: reviewedAt,
+              accuracy: lifetimeAccuracy,
+              reviewCount: isAttemptComplete ? selectedDeck.cards.length : deck.reviewCount,
+              lastReviewed: isAttemptComplete ? reviewedAt : deck.lastReviewed,
             }
           : deck,
       ),
@@ -632,15 +719,44 @@ export function FlashcardDeckScreen({ onNavigate }: FlashcardDeckScreenProps) {
       toast.success('Nice! Card marked as known.');
     }
 
-    // Move to next card
-    setTimeout(() => {
-      if (currentCardIndex < reviewedDeck.cards.length - 1) {
-        setCurrentCardIndex(currentCardIndex + 1);
-      } else {
-          toast.success('Deck complete! Great job!');
-        setSelectedDeck(null);
+    if (isAttemptComplete) {
+      await submitCompletedDeckReview(reviewedDeck, nextAttemptResults);
+      setShowSummary(true);
+      toast.success('Deck complete! Great job!');
+
+      if (nextProgress >= 80) {
+        setShowConfetti(true);
+        setTimeout(() => setShowConfetti(false), 3000);
       }
-    }, 500);
+    }
+
+    if (options.autoAdvance !== false && !isAttemptComplete) {
+      setTimeout(() => {
+        setCurrentCardIndex(currentCardIndex + 1);
+      }, 500);
+    }
+  };
+
+  const handleAttemptAgain = () => {
+    if (!selectedDeck) return;
+    setCurrentCardIndex(0);
+    setRevealedCardIds(new Set());
+    setAnsweredCardIds(new Set());
+    setAttemptResults({});
+    setStudyControlsLocked(false);
+    setStreak(0);
+    setShowSummary(false);
+    toast('Deck reset. Ready for another pass.');
+  };
+
+  const handleBackToDecks = () => {
+    setSelectedDeck(null);
+    setCurrentCardIndex(0);
+    setRevealedCardIds(new Set());
+    setStreak(0);
+    setAnsweredCardIds(new Set());
+    setAttemptResults({});
+    setShowSummary(false);
   };
 
   const handleShuffle = () => {
@@ -651,6 +767,7 @@ export function FlashcardDeckScreen({ onNavigate }: FlashcardDeckScreenProps) {
     setRevealedCardIds(new Set());
     setAnsweredCardIds(new Set());
     setAttemptResults({});
+    setShowSummary(false);
     toast('Deck shuffled!');
   };
 
@@ -665,7 +782,7 @@ export function FlashcardDeckScreen({ onNavigate }: FlashcardDeckScreenProps) {
   });
 
   useEffect(() => {
-    if (!selectedDeck || showCreateDialog) return;
+    if (!selectedDeck || showCreateDialog || showSummary) return;
 
     const handleFlashcardKeyDown = (event: KeyboardEvent) => {
       if (isKeyboardInputTarget(event.target)) return;
@@ -709,6 +826,7 @@ export function FlashcardDeckScreen({ onNavigate }: FlashcardDeckScreenProps) {
     isCurrentCardRevealed,
     selectedDeck,
     showCreateDialog,
+    showSummary,
     studyControlsLocked,
   ]);
 
@@ -773,14 +891,7 @@ export function FlashcardDeckScreen({ onNavigate }: FlashcardDeckScreenProps) {
             {selectedDeck && (
               <Button
                 variant="outline"
-                onClick={() => {
-                  setSelectedDeck(null);
-                  setCurrentCardIndex(0);
-                  setRevealedCardIds(new Set());
-                  setStreak(0);
-                  setAnsweredCardIds(new Set());
-                  setAttemptResults({});
-                }}
+                onClick={handleBackToDecks}
               >
                 <ArrowLeft className="w-4 h-4 mr-2" />
                 Back to Decks
@@ -1252,6 +1363,19 @@ export function FlashcardDeckScreen({ onNavigate }: FlashcardDeckScreenProps) {
           </div>
         </DialogContent>
       </Dialog>
+
+      <FlashcardReviewSummaryDialog
+        open={showSummary}
+        mastery={attemptMastery}
+        knownCount={attemptKnownCount}
+        needsReviewCount={attemptNeedsReviewCount}
+        totalCards={attemptTotal}
+        reviewedCount={attemptReviewedCount}
+        allTimeAccuracy={selectedDeck?.accuracy}
+        onOpenChange={setShowSummary}
+        onAttemptAgain={handleAttemptAgain}
+        onBackToDecks={handleBackToDecks}
+      />
     </div>
   );
 }

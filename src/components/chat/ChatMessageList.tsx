@@ -1,4 +1,4 @@
-import { type Dispatch, type RefObject, type SetStateAction } from 'react';
+import { type Dispatch, type KeyboardEvent, type RefObject, type SetStateAction } from 'react';
 import { AnimatePresence, motion } from 'motion/react';
 import {
   Check,
@@ -92,10 +92,60 @@ export function ChatMessageList({
               {message.type === 'flashcard' && message.flashcards && (
                 <div className="w-full space-y-4">
                   {(() => {
-                    const currentCard = message.flashcards[currentFlashcardIndex];
+                    const safeFlashcardIndex = Math.min(
+                      Math.max(currentFlashcardIndex, 0),
+                      message.flashcards.length - 1,
+                    );
+                    const currentCard = message.flashcards[safeFlashcardIndex];
                     if (!currentCard) return null;
 
                     const isCurrentCardRevealed = revealedFlashcardIds.has(currentCard.id);
+                    const knownFlashcardCount = message.flashcards.filter((card) => card.known).length;
+                    const reviewedFlashcardCount = message.flashcards.filter((card) => card.reviewed).length;
+                    const isFlashcardComplete = reviewedFlashcardCount === message.flashcards.length;
+                    const markCurrentCardKnown = () => {
+                      onFlashcardKnown(currentCard.id, true);
+                      if (!isCurrentCardRevealed) {
+                        onRevealFlashcard(currentCard.id);
+                      }
+                      if (safeFlashcardIndex < message.flashcards!.length - 1) {
+                        onCurrentFlashcardIndexChange((prev) => prev + 1);
+                      }
+                    };
+                    const revealCurrentCard = () => {
+                      if (!isCurrentCardRevealed) {
+                        onFlashcardKnown(currentCard.id, false);
+                        onRevealFlashcard(currentCard.id);
+                      }
+                    };
+                    const moveToPreviousCard = () => {
+                      if (safeFlashcardIndex > 0) {
+                        onCurrentFlashcardIndexChange((prev) => Math.max(0, prev - 1));
+                      }
+                    };
+                    const moveToNextCard = () => {
+                      if (safeFlashcardIndex < message.flashcards!.length - 1 && isCurrentCardRevealed) {
+                        onCurrentFlashcardIndexChange((prev) => prev + 1);
+                      }
+                    };
+                    const handleFlashcardKeyDown = (event: KeyboardEvent<HTMLElement>) => {
+                      if (event.key === 'Enter' || event.key === ' ') {
+                        event.preventDefault();
+                        revealCurrentCard();
+                        return;
+                      }
+
+                      if (event.key === 'ArrowLeft') {
+                        event.preventDefault();
+                        moveToPreviousCard();
+                        return;
+                      }
+
+                      if (event.key === 'ArrowRight') {
+                        event.preventDefault();
+                        moveToNextCard();
+                      }
+                    };
 
                     return (
                   <div className="chat-study-shell chat-study-shell-flashcard">
@@ -105,14 +155,14 @@ export function ChatMessageList({
                         <p className="chat-study-message">{message.content}</p>
                       </div>
                       <Badge variant="secondary" className="chat-study-count">
-                        {currentFlashcardIndex + 1} / {message.flashcards.length}
+                        {safeFlashcardIndex + 1} / {message.flashcards.length}
                       </Badge>
                     </div>
 
                     <div className="relative">
                       <AnimatePresence mode="wait">
                         <motion.div
-                          key={currentFlashcardIndex}
+                          key={safeFlashcardIndex}
                           initial={{ opacity: 0, rotateY: 90 }}
                           animate={{ opacity: 1, rotateY: 0 }}
                           exit={{ opacity: 0, rotateY: -90 }}
@@ -122,24 +172,14 @@ export function ChatMessageList({
                           <Card
                             className={`chat-flashcard-card ${isCurrentCardRevealed ? 'chat-flashcard-card-back' : ''}`}
                             role="button"
-                            tabIndex={isCurrentCardRevealed ? -1 : 0}
+                            tabIndex={0}
                             aria-label={
                               isCurrentCardRevealed
                                 ? `Answer revealed for ${currentCard.title}`
                                 : `Reveal answer for ${currentCard.title}`
                             }
-                            onClick={() => {
-                              if (!isCurrentCardRevealed) {
-                                onRevealFlashcard(currentCard.id);
-                              }
-                            }}
-                            onKeyDown={(event) => {
-                              if (isCurrentCardRevealed) return;
-                              if (event.key === 'Enter' || event.key === ' ') {
-                                event.preventDefault();
-                                onRevealFlashcard(currentCard.id);
-                              }
-                            }}
+                            onClick={revealCurrentCard}
+                            onKeyDown={handleFlashcardKeyDown}
                           >
                             <CardHeader className="chat-flashcard-card-header">
                               <div className="chat-flashcard-title-row">
@@ -215,13 +255,8 @@ export function ChatMessageList({
                         <Button
                           size="lg"
                           className="flashcard-know-btn"
-                          disabled={isCurrentCardRevealed}
-                          onClick={() => {
-                            onFlashcardKnown(currentCard.id, true);
-                            if (currentFlashcardIndex < message.flashcards!.length - 1) {
-                              onCurrentFlashcardIndexChange((prev) => prev + 1);
-                            }
-                          }}
+                          disabled={currentCard.reviewed}
+                          onClick={markCurrentCardKnown}
                         >
                           <Check className="w-5 h-5" />
                           I Know It
@@ -233,16 +268,14 @@ export function ChatMessageList({
                           variant="outline"
                           size="icon"
                           className="chat-study-nav-button"
-                          disabled={currentFlashcardIndex === 0}
-                          onClick={() => {
-                            onCurrentFlashcardIndexChange((prev) => prev - 1);
-                          }}
+                          disabled={safeFlashcardIndex === 0}
+                          onClick={moveToPreviousCard}
                         >
                           <ChevronLeft className="w-5 h-5" />
                         </Button>
 
                         <span className="chat-study-position">
-                          {currentFlashcardIndex + 1} / {message.flashcards.length}
+                          {safeFlashcardIndex + 1} / {message.flashcards.length}
                         </span>
 
                         <Button
@@ -250,15 +283,26 @@ export function ChatMessageList({
                           size="icon"
                           className="chat-study-nav-button"
                           disabled={
-                            currentFlashcardIndex === message.flashcards.length - 1 || !isCurrentCardRevealed
+                            safeFlashcardIndex === message.flashcards.length - 1 || !isCurrentCardRevealed
                           }
-                          onClick={() => {
-                            onCurrentFlashcardIndexChange((prev) => prev + 1);
-                          }}
+                          onClick={moveToNextCard}
                         >
                           <ChevronRight className="w-5 h-5" />
                         </Button>
                       </div>
+
+                      {isFlashcardComplete && (
+                        <motion.div
+                          initial={{ opacity: 0, y: 20 }}
+                          animate={{ opacity: 1, y: 0 }}
+                          className="chat-quiz-complete"
+                        >
+                          <p className="chat-quiz-complete-title">Flashcards Complete!</p>
+                          <p className="chat-quiz-complete-score">
+                            Score: {knownFlashcardCount} / {message.flashcards.length}
+                          </p>
+                        </motion.div>
+                      )}
                     </div>
                   </div>
                     );
