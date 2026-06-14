@@ -17,8 +17,8 @@ export function Footer({ onNavigate }: FooterProps) {
   ];
   const resourceLinks = [
     { name: 'Student Dashboard', href: buildFrontendUrl(FRONTEND_ROUTES.dashboard) },
-    { name: 'Focus Method', href: buildFrontendUrl(FRONTEND_ROUTES.science) },
-    { name: 'Support', href: buildFrontendUrl(FRONTEND_ROUTES.contact) },
+    { name: 'Privacy', href: buildFrontendUrl(FRONTEND_ROUTES.privacy) },
+    { name: 'Terms', href: buildFrontendUrl(FRONTEND_ROUTES.terms) },
   ];
   const socialLinks = [
     { icon: Linkedin, href: buildFrontendUrl(FRONTEND_ROUTES.contact), label: 'LinkedIn' },
@@ -31,8 +31,8 @@ export function Footer({ onNavigate }: FooterProps) {
       <div className="absolute left-0 right-0 top-0 h-px bg-gradient-to-r from-transparent via-blue-500 to-transparent opacity-30" />
 
       <div className="mx-auto max-w-6xl px-5 pb-4 pt-8 sm:px-6 lg:px-12 xl:px-16">
-        <div className="grid gap-10 sm:grid-cols-2 lg:grid-cols-4">
-          <div className="max-w-sm sm:col-span-2 lg:col-span-1">
+        <div className="grid gap-y-10 gap-x-16 md:grid-cols-4 xl:gap-x-24">
+          <div className="max-w-[300px]">
             <div className="mb-4 flex items-center gap-2">
               <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-gradient-to-br from-blue-500 to-purple-600">
                 <Sparkles className="h-5 w-5 text-white" />
@@ -46,7 +46,7 @@ export function Footer({ onNavigate }: FooterProps) {
 
           <div>
             <h4 className="mb-3 text-sm font-semibold text-foreground">Main Website</h4>
-            <div className="flex flex-col gap-2">
+            <div className="flex flex-col gap-3">
               {websiteLinks.map((link) => (
                 <button
                   key={link.name}
@@ -62,7 +62,7 @@ export function Footer({ onNavigate }: FooterProps) {
 
           <div>
             <h4 className="mb-3 text-sm font-semibold text-foreground">Resources</h4>
-            <div className="flex flex-col gap-2">
+            <div className="flex flex-col gap-3">
               {resourceLinks.map((link) => (
                 <button
                   key={link.name}
@@ -101,7 +101,7 @@ export function Footer({ onNavigate }: FooterProps) {
         </div>
 
         <div className="mt-6 flex min-h-6 items-center justify-center border-t border-border pt-3 text-center text-sm text-muted-foreground">
-          © 2026 FocusSpark. All rights reserved.
+          &copy; 2026 FocusSpark. All rights reserved.
         </div>
       </div>
     </footer>

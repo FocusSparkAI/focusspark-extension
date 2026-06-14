@@ -11,6 +11,8 @@ export const FRONTEND_ROUTES = {
   science: '/science',
   about: '/about',
   contact: '/contact',
+  privacy: '/privacy',
+  terms: '/terms',
   signup: '/signup',
   forgotPassword: '/forgot-password',
   dashboard: '/dashboard',

@@ -320,7 +320,10 @@ function AppContent() {
   const isSpecialPage = SPECIAL_PAGES.has(currentPage);
 
   return (
-    <div className="min-h-screen bg-background text-foreground">
+    <div
+      className="min-h-screen bg-background text-foreground"
+      style={currentPage === 'home' ? { background: theme === 'dark' ? '#0F121A' : '#F7FAFC' } : undefined}
+    >
       {/* Theme Toggle - Position adjusted for special pages */}
       <ThemeToggle
         theme={theme}
